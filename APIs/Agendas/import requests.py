@@ -3,6 +3,8 @@ import os
 import re
 from datetime import datetime, timedelta
 
+# a random comment to test the commit
+
 # -----------------------------------------------------------------------------
 # Date range to pull agendas (in code — change these as needed).
 # Events with EventDate on or between these dates (inclusive) will be included.
