@@ -3,6 +3,7 @@ import {
   Links,
   Meta,
   Outlet,
+  Link,
   Scripts,
   ScrollRestoration,
 } from "react-router";
@@ -42,7 +43,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 //add header, nav, footer here to display on every page
 export default function App() {
-  return <Outlet />;
+  return ( 
+    <>
+    <header>
+      <nav>
+        <Link to="/">Home</Link>
+        <Link to="/about">About</Link>
+      </nav>
+    </header>
+    <Outlet />
+
+    </>
+    );
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
