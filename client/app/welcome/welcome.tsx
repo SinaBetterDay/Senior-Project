@@ -1,13 +1,7 @@
-
-
 export function Welcome() {
   return (
-    <h1 className="bg-blue-300">Welcome</h1>
+    <main className="min-h-screen flex items-center justify-center bg-blue-500 text-white text-4xl font-bold">
+      Hello FAIR
+    </main>
   );
 }
-
-const resources = [
-  {
-    
-  },,
-];
