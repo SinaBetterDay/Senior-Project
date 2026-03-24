@@ -40,7 +40,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     </html>
   );
 }
-
+//add header, nav, footer here to display on every page
 export default function App() {
   return <Outlet />;
 }
