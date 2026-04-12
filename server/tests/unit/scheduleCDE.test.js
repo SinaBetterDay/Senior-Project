@@ -19,4 +19,10 @@ describe("parseScheduleCDE", () => {
     const result = parseScheduleCDE("fake.xlsx");
     expect(result).toEqual([]);
   });
+
+  it("returns an empty array for malformed XLSX input", () => {
+  const result = parseScheduleCDE("tests/fixtures/form700-malformed.xlsx");
+  expect(result).toEqual([]);
+});
+
 });

@@ -19,4 +19,9 @@ describe("parseScheduleA", () => {
     const result = parseScheduleA("fake.xlsx");
     expect(result).toEqual([]);
   });
+
+  it("returns an empty array for malformed XLSX input", () => {
+    const result = parseScheduleA("tests/fixtures/form700-malformed.xlsx");
+    expect(result).toEqual([]);
+  });
 });
