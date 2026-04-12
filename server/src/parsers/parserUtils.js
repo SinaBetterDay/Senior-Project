@@ -51,7 +51,7 @@ export function findSheetByName(workbook, keywords = []) {
   return matchedSheetName ? workbook.Sheets[matchedSheetName] : null;
 }
 
-export function sheetToObjects(sheet) {
+export function sheetToObjects(sheet, headerRowIndex = 0) {
   if (!sheet) {
     return [];
   }
@@ -59,6 +59,7 @@ export function sheetToObjects(sheet) {
   return XLSX.utils.sheet_to_json(sheet, {
     defval: "",
     raw: false,
+    range: headerRowIndex,
   });
 }
 

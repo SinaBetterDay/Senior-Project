@@ -13,7 +13,13 @@ export function parseScheduleA(input) {
     return [];
   }
 
-  const sheet = findSheetByName(workbook, ["schedule a", "a investments", "investments"]);
+  const sheet = findSheetByName(workbook, [
+    "schedule a1",
+    "schedule a-1",
+    "schedule a",
+    "a investments",
+    "investments",
+  ]);
 
   if (!sheet) {
     return [];

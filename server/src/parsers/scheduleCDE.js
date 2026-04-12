@@ -9,12 +9,13 @@ import {
 export function parseScheduleCDE(input) {
   const workbook = loadWorkbook(input);
 
-  if (!workbook) {
+  if (!workbook || !Array.isArray(workbook.SheetNames)) {
     return [];
   }
 
   const targetSheets = workbook.SheetNames.filter((sheetName) => {
     const normalizedName = normalizeHeader(sheetName);
+
     return (
       normalizedName.includes("schedule c") ||
       normalizedName.includes("schedule d") ||
@@ -38,7 +39,18 @@ export function parseScheduleCDE(input) {
       continue;
     }
 
-    const jsonRows = sheetToObjects(sheet);
+    const normalizedSheetName = normalizeHeader(sheetName);
+
+    let headerRowIndex = 0;
+    if (normalizedSheetName.includes("schedule c")) {
+      headerRowIndex = 1;
+    } else if (normalizedSheetName.includes("schedule d")) {
+      headerRowIndex = 0;
+    } else if (normalizedSheetName.includes("schedule e")) {
+      headerRowIndex = 0;
+    }
+
+    const jsonRows = sheetToObjects(sheet, headerRowIndex);
 
     for (const row of jsonRows) {
       const sourceName = getField(row, [
@@ -51,8 +63,9 @@ export function parseScheduleCDE(input) {
       ]);
 
       const amount = getField(row, [
-        "amount",
+        "gross income received",
         "value",
+        "amount",
         "amount/value",
       ]);
 
