@@ -7,25 +7,18 @@ const prisma = new PrismaClient();
 /**
  * Parses Schedule A entries from a Form 700 XLSX document and inserts them
  * into the schedule_a_investments table.
- *
- * @param {Buffer|string} xlsxBuffer - The XLSX file as a Buffer or binary string
- * @param {number} filingId - The ID of the filing record these investments relate to
- * @returns {Promise<Array>} Array of inserted record objects:
- *         { entity_name, fair_market_value, nature_of_investment, politician_id, filing_id }
- *         Returns empty array if no Schedule A sheet found or no valid entries.
- *
- * @example
- * const buffer = fs.readFileSync('form700.xlsx');
- * const records = await parseScheduleA(buffer, 42);
+ * Example:
+ * const String = fs.readFileSync('form700.xlsx');
+ * const records = await parseScheduleA(String, 42);
  * // Output: console.log: "Inserted 5 Schedule A investment records"
  */
 
-export async function parseScheduleA(xlsxBuffer, filingId) {
+export async function parseScheduleA(xlsxString, filingId) {
   try {
     // Parse the XLSX file
-    const workbook = read(xlsxBuffer, { type: 'buffer' });
+    const workbook = read(xlsxString, { type: 'buffer' });
 
-    // Find the Schedule A sheet (case-insensitive search)
+    // Find the Schedule A sheet (ignores case)
     const scheduleASheet = workbook.SheetNames.find(
       (name) => name.toLowerCase() === 'schedule a1'
     );
@@ -40,7 +33,7 @@ export async function parseScheduleA(xlsxBuffer, filingId) {
     const rawRows = utils.sheet_to_json(worksheet, { defval: '' });
 
     if (!rawRows || rawRows.length === 0) {
-      console.log('Schedule A sheet is empty.');
+      console.log('Schedule A sheet is empty.'); //Returns empty array if no data found
       return [];
     }
 
@@ -57,7 +50,7 @@ export async function parseScheduleA(xlsxBuffer, filingId) {
 
     const politicianId = filing.politician_id;
 
-    // Map and filter rows to structured format
+    // Map the desired rows and create a structure
     const recordsToInsert = rawRows
       .map((row) => {
         const entityName = String(row['NAME OF BUSINESS ENTITY'] || '').trim();
