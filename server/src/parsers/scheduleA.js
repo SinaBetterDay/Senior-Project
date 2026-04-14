@@ -1,96 +1,119 @@
 //Rhys Honaker
-import { read, utils } from 'xlsx';
-import { PrismaClient } from '@prisma/client';
+import * as XLSX from "xlsx";
 
-const prisma = new PrismaClient();
+function cleanText(value) {
+  if (value == null) return null;
+  const text = String(value).trim();
+  return text === "" ? null : text;
+}
 
-/**
- * Parses Schedule A entries from a Form 700 XLSX document and inserts them
- * into the schedule_a_investments table.
- * Example:
- * const String = fs.readFileSync('form700.xlsx');
- * const records = await parseScheduleA(String, 42);
- * // Output: console.log: "Inserted 5 Schedule A investment records"
- */
+function normalizeHeader(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function findScheduleASheetName(workbook) {
+  if (!workbook || !Array.isArray(workbook.SheetNames)) {
+    return null;
+  }
+
+  return workbook.SheetNames.find((sheetName) => {
+    const normalized = normalizeHeader(sheetName);
+    return normalized === "schedule a" || normalized.includes("schedule a");
+  });
+}
+
+function getColumnValue(row, normalizedHeaderName) {
+  for (const key of Object.keys(row)) {
+    if (normalizeHeader(key) === normalizedHeaderName) {
+      return row[key];
+    }
+  }
+  return null;
+}
+
+function mapRowToScheduleARecord(row, filingId, politicianId) {
+  const entityName = cleanText(getColumnValue(row, "name of business entity"));
+  if (!entityName) {
+    return null;
+  }
+
+  return {
+    entity_name: entityName,
+    fair_market_value: cleanText(getColumnValue(row, "fair market value")),
+    nature_of_investment: cleanText(getColumnValue(row, "nature of investment")),
+    politician_id: politicianId,
+    filing_id: filingId,
+  };
+}
 
 export async function parseScheduleA(xlsxString, filingId) {
+  if (!xlsxString) {
+    console.log("parseScheduleA: no XLSX content provided.");
+    return [];
+  }
+
+  let workbook;
   try {
-    // Parse the XLSX file
-    const workbook = read(xlsxString, { type: 'buffer' });
-
-    // Find the Schedule A sheet (ignores case)
-    const scheduleASheet = workbook.SheetNames.find(
-      (name) => name.toLowerCase() === 'schedule a1'
-    );
-
-    if (!scheduleASheet) {
-      console.log('No Schedule A sheet found, returning empty array');
-      return [];
-    }
-
-    // Convert sheet to JSON
-    const worksheet = workbook.Sheets[scheduleASheet];
-    const rawRows = utils.sheet_to_json(worksheet, { defval: '' });
-
-    if (!rawRows || rawRows.length === 0) {
-      console.log('Schedule A sheet is empty.'); //Returns empty array if no data found
-      return [];
-    }
-
-    // Get the politician_id from the filing record
-    const filing = await prisma.filings.findUnique({
-      where: { id: filingId },
-      select: { politician_id: true },
-    });
-
-    if (!filing) {
-      console.error(`Filing with ID ${filingId} not found.`);
-      return [];
-    }
-
-    const politicianId = filing.politician_id;
-
-    // Map the desired rows and create a structure
-    const recordsToInsert = rawRows
-      .map((row) => {
-        const entityName = String(row['NAME OF BUSINESS ENTITY'] || '').trim();
-        const fairMarketValue = String(row['FAIR MARKET VALUE'] || '').trim();
-        const natureOfInvestment = String(row['NATURE OF INVESTMENT'] || '').trim();
-
-        // Skip rows with empty entity names (headers or blank rows)
-        if (!entityName) {
-          return null;
-        }
-
-        return {
-          entity_name: entityName,
-          fair_market_value: fairMarketValue || null,
-          nature_of_investment: natureOfInvestment || null,
-          politician_id: politicianId,
-          filing_id: filingId,
-        };
-      })
-      .filter((record) => record !== null);
-
-    // Early return if no valid records
-    if (recordsToInsert.length === 0) {
-      console.log('No valid Schedule A investment entries found.');
-      return [];
-    }
-
-    // Insert all records into the database
-    const insertedRecords = await prisma.schedule_a_investments.createMany({
-      data: recordsToInsert,
-    });
-
-    console.log(
-      `Inserted ${insertedRecords.count} Schedule A investment records for filing ${filingId}.`
-    );
-
-    // Return the records as structured objects
-    return recordsToInsert;
+    const readOptions = typeof xlsxString === "string" ? { type: "binary" } : { type: "buffer" };
+    workbook = XLSX.read(xlsxString, readOptions);
   } catch (error) {
-    console.error('Error parsing Schedule A:', error);
+    console.error("parseScheduleA: failed to read XLSX document.", error);
+    return [];
+  }
+
+  const sheetName = findScheduleASheetName(workbook);
+  if (!sheetName) {
+    console.log("parseScheduleA: Schedule A sheet not found.");
+    return [];
+  }
+
+  const worksheet = workbook.Sheets?.[sheetName];
+  if (!worksheet) {
+    console.log("parseScheduleA: Schedule A worksheet is missing.");
+    return [];
+  }
+
+  const rows = XLSX.utils.sheet_to_json(worksheet, { defval: null });
+  if (!Array.isArray(rows) || rows.length === 0) {
+    console.log("parseScheduleA: Schedule A sheet is empty.");
+    return [];
+  }
+
+  const filing = await prisma.filings.findUnique({
+    where: { id: filingId },
+    select: { politician_id: true },
+  });
+
+  if (!filing) {
+    console.error(`parseScheduleA: filing ${filingId} not found.`);
+    return [];
+  }
+
+  const politicianId = filing.politician_id;
+  const records = rows
+    .filter((row) => row && typeof row === "object")
+    .map((row) => mapRowToScheduleARecord(row, filingId, politicianId))
+    .filter((record) => record !== null);
+
+  if (records.length === 0) {
+    console.log("parseScheduleA: no valid Schedule A investment records found.");
+    return [];
+  }
+
+  try {
+    const result = await prisma.schedule_a_investments.createMany({
+      data: records,
+      skipDuplicates: true,
+    });
+
+    console.log(`Inserted ${result.count} Schedule A records for filing ${filingId}.`);
+    return records;
+  } catch (error) {
+    console.error("parseScheduleA: failed to insert schedule_a_investments.", error);
     return [];
   }
 }
