@@ -1,0 +1,105 @@
+// Sprint 2 v1 — seven core tables for disclosures, agendas, votes, and conflict tracking.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Jurisdiction {
+  id               String   @id @default(uuid())
+  name             String
+  type             String
+  legistarClientId String?  @unique
+  createdAt        DateTime @default(now())
+
+  politicians Politician[]
+  meetings    Meeting[]
+}
+
+model Politician {
+  id              String   @id @default(uuid())
+  slug            String   @unique
+  fullName        String
+  officeTitle     String
+  party           String?
+  district        String?
+  photoUrl        String?
+  externalId      String?
+  jurisdictionId  String?
+  jurisdiction    Jurisdiction? @relation(fields: [jurisdictionId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  votes         VoteRecord[]
+  filings       Form700Filing[]
+  conflictFlags ConflictFlag[]
+}
+
+model Meeting {
+  id               String   @id @default(uuid())
+  jurisdictionId   String
+  jurisdiction     Jurisdiction @relation(fields: [jurisdictionId], references: [id], onDelete: Cascade)
+  bodyName         String
+  meetingDate      DateTime
+  agendaUrl        String?
+  legistarEventId  Int?
+  createdAt        DateTime @default(now())
+
+  agendaItems AgendaItem[]
+}
+
+model AgendaItem {
+  id          String   @id @default(uuid())
+  meetingId   String
+  meeting     Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  itemNumber  String?
+  createdAt   DateTime @default(now())
+
+  votes           VoteRecord[]
+  conflictFlags   ConflictFlag[]
+}
+
+model VoteRecord {
+  id           String   @id @default(uuid())
+  agendaItemId String
+  agendaItem   AgendaItem @relation(fields: [agendaItemId], references: [id], onDelete: Cascade)
+  politicianId String
+  politician   Politician @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+  vote         String
+  voteDate     DateTime?
+  createdAt    DateTime @default(now())
+
+  @@unique([agendaItemId, politicianId])
+}
+
+model Form700Filing {
+  id            String    @id @default(uuid())
+  politicianId  String
+  politician    Politician @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+  filingYear    Int
+  storagePath   String?
+  filedAt       DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@unique([politicianId, filingYear])
+}
+
+model ConflictFlag {
+  id           String    @id @default(uuid())
+  politicianId String
+  politician   Politician @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+  agendaItemId String?
+  agendaItem   AgendaItem? @relation(fields: [agendaItemId], references: [id], onDelete: SetNull)
+  severity     String
+  status       String    @default("OPEN")
+  summary      String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
