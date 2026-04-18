@@ -5,7 +5,14 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test:storage": "node scripts/test-form700-storage.mjs"
+    "test:storage": "node scripts/test-form700-storage.mjs",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "prisma db seed",
+    "db:studio": "prisma studio"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.0",
