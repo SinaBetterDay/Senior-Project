@@ -1,6 +1,14 @@
+# Dependencies
 node_modules/
-coverage/
+
+# Environment and secrets (never commit)
 .env
-.DS_Store
+.env.*
+!.env.example
+**/.env
+!**/.env.example
+
+# Build / OS
 dist/
+.DS_Store
 .vercel/
