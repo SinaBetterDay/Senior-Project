@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Navigate } from "react-router";
 
 type Source = {
   id: string;
@@ -42,8 +43,14 @@ function formatDate(date: string | null) {
 }
 
 export default function AdminSourcesPage() {
+  const isAdmin = true;
+
   const [sources, setSources] = useState<Source[]>(mockSources);
   const [syncingId, setSyncingId] = useState<string | null>(null);
+
+  if (!isAdmin) {
+    return <Navigate to="/admin/login" replace />;
+  }
 
   function handleSync(id: string) {
     setSyncingId(id);
