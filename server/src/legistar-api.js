@@ -1,3 +1,4 @@
+//Rhys Honaker
 /**
  * Legistar API wrapper module
  * Provides clean async functions for fetching meetings, agenda items, and votes
