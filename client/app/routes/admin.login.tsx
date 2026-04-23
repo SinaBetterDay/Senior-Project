@@ -1,4 +1,9 @@
 export default function AdminLoginPage() {
+  function handleLogin() {
+    localStorage.setItem("isAdmin", "true");
+    window.location.href = "/admin/sources";
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-100 p-6">
       <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-lg">
@@ -31,6 +36,7 @@ export default function AdminLoginPage() {
 
           <button
             type="button"
+            onClick={handleLogin}
             className="w-full rounded-lg bg-blue-700 px-4 py-2 font-semibold text-white hover:bg-blue-800"
           >
             Login
