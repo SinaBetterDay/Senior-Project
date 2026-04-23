@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Navigate } from "react-router";
 
 type Source = {
@@ -47,15 +47,37 @@ export default function AdminSourcesPage() {
 
   const [sources, setSources] = useState<Source[]>(mockSources);
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [messageType, setMessageType] = useState<"success" | "error" | null>(null);
+  const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
 
   if (!isAdmin) {
     return <Navigate to="/admin/login" replace />;
   }
 
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setLastRefreshed(new Date());
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   function handleSync(id: string) {
     setSyncingId(id);
+    setMessage(null);
+    setMessageType(null);
 
     setTimeout(() => {
+      const shouldFail = false;
+
+      if (shouldFail) {
+        setSyncingId(null);
+        setMessage("Sync failed.");
+        setMessageType("error");
+        return;
+      }
+
       setSources((prev) =>
         prev.map((source) =>
           source.id === id
@@ -69,16 +91,32 @@ export default function AdminSourcesPage() {
       );
 
       setSyncingId(null);
-      alert("Sync complete!");
+      setMessage("Sync completed successfully.");
+      setMessageType("success");
     }, 1500);
   }
 
   return (
     <div className="p-6">
       <h1 className="mb-2 text-2xl font-bold">Data Sources Status</h1>
-      <p className="mb-6 text-sm text-gray-600">
+      <p className="mb-2 text-sm text-gray-600">
         View ingestion source status and trigger manual syncs.
       </p>
+      <p className="mb-6 text-xs text-gray-500">
+        Last refreshed: {lastRefreshed.toLocaleTimeString()}
+      </p>
+
+      {message && (
+        <div
+          className={`mb-4 rounded-lg px-4 py-3 text-sm ${
+            messageType === "success"
+              ? "bg-green-100 text-green-800"
+              : "bg-red-100 text-red-800"
+          }`}
+        >
+          {message}
+        </div>
+      )}
 
       <div className="overflow-x-auto rounded-xl border">
         <table className="min-w-full text-sm">
@@ -94,24 +132,32 @@ export default function AdminSourcesPage() {
           </thead>
 
           <tbody>
-            {sources.map((source) => (
-              <tr key={source.id} className="border-t">
-                <td className="px-4 py-3">{source.cityName}</td>
-                <td className="px-4 py-3">{source.sourceType}</td>
-                <td className="px-4 py-3">{formatDate(source.lastSyncTime)}</td>
-                <td className="px-4 py-3">{source.totalAgendaItems}</td>
-                <td className="px-4 py-3">{source.lastError || "—"}</td>
-                <td className="px-4 py-3">
-                  <button
-                    onClick={() => handleSync(source.id)}
-                    disabled={syncingId === source.id}
-                    className="rounded-lg bg-black px-3 py-2 text-white disabled:opacity-50"
-                  >
-                    {syncingId === source.id ? "Syncing..." : "Sync now"}
-                  </button>
+            {sources.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-6 text-center text-gray-500">
+                  No data sources found.
                 </td>
               </tr>
-            ))}
+            ) : (
+              sources.map((source) => (
+                <tr key={source.id} className="border-t">
+                  <td className="px-4 py-3">{source.cityName}</td>
+                  <td className="px-4 py-3">{source.sourceType}</td>
+                  <td className="px-4 py-3">{formatDate(source.lastSyncTime)}</td>
+                  <td className="px-4 py-3">{source.totalAgendaItems}</td>
+                  <td className="px-4 py-3">{source.lastError || "—"}</td>
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() => handleSync(source.id)}
+                      disabled={syncingId === source.id}
+                      className="rounded-lg bg-black px-3 py-2 text-white disabled:opacity-50"
+                    >
+                      {syncingId === source.id ? "Syncing..." : "Sync now"}
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
