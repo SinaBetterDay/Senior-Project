@@ -1,25 +1,21 @@
 {
-  "name": "server",
-  "private": true,
+  "name": "fair-server",
+  "version": "1.0.0",
+  "description": "FAIR backend server",
+  "main": "src/index.js",
   "type": "module",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js",
-    "test:storage": "node scripts/test-form700-storage.mjs",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:seed": "prisma db seed",
-    "db:studio": "prisma studio"
-  },
-  "prisma": {
-    "seed": "node prisma/seed.js"
+    "dev": "node src/index.js",
+    "test": "vitest run",
+    "test:integration": "vitest run tests/integration",
+    "coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.103.0",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
-    "express": "^4.21.2",
-    "xlsx": "^0.18.5",
-    "xml2js": "^0.6.2"
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "vitest": "^1.6.0",
+    "@vitest/coverage-v8": "^1.6.0",
+    "supertest": "^6.3.3"
   }
 }
