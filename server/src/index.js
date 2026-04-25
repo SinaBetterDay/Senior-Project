@@ -1,22 +1,24 @@
-import express from "express";
-import cors from "cors";
-import dotenv from "dotenv";
-import adminSourcesRouter from "./routes/admin/sources.js";
+import dotenv from 'dotenv';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+import express from 'express';
 
-dotenv.config();
+import { scheduleCronJobs } from './jobs/scheduleCronJobs.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: join(__dirname, '../.env') });
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.use(cors());
 app.use(express.json());
 
-app.get("/", (req, res) => {
-  res.json({ message: "Server is running" });
+app.get('/health', (_req, res) => {
+  res.json({ ok: true });
 });
 
-app.use("/api/admin", adminSourcesRouter);
+scheduleCronJobs();
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+const port = process.env.PORT ? Number(process.env.PORT) : 3001;
+app.listen(port, () => {
+  console.log(`[server] listening on :${port}`);
 });
+

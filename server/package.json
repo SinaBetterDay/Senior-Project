@@ -5,17 +5,17 @@
   "main": "src/index.js",
   "type": "module",
   "scripts": {
-    "dev": "node src/index.js",
-    "test": "vitest run",
-    "test:integration": "vitest run tests/integration",
-    "coverage": "vitest run --coverage"
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "run:apify-agendas": "node src/jobs/runApifyAgendaScrape.js",
+    "test:storage": "node scripts/test-form700-storage.mjs"
   },
   "dependencies": {
-    "xlsx": "^0.18.5"
-  },
-  "devDependencies": {
-    "vitest": "^1.6.0",
-    "@vitest/coverage-v8": "^1.6.0",
-    "supertest": "^6.3.3"
+    "@supabase/supabase-js": "^2.49.1",
+    "apify-client": "^2.23.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "node-cron": "^4.2.1"
   }
 }
