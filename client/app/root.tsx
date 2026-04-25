@@ -3,10 +3,10 @@ import {
   Links,
   Meta,
   Outlet,
-  Link,
   Scripts,
   ScrollRestoration,
 } from "react-router";
+import { Toaster } from "react-hot-toast";
 
 import type { Route } from "./+types/root";
 import "./app.css";
@@ -35,26 +35,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         {children}
+        <Toaster position="top-right" />
         <ScrollRestoration />
         <Scripts />
       </body>
     </html>
   );
 }
-//add header, nav, footer here to display on every page
-export default function App() {
-  return ( 
-    <>
-    <header>
-      <nav>
-        <Link to="/">Home</Link>
-        <Link to="/about">About</Link>
-      </nav>
-    </header>
-    <Outlet />
 
-    </>
-    );
+export default function App() {
+  return <Outlet />;
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
@@ -74,11 +64,11 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
   }
 
   return (
-    <main className="pt-16 p-4 container mx-auto">
+    <main className="container mx-auto p-4 pt-16">
       <h1>{message}</h1>
       <p>{details}</p>
       {stack && (
-        <pre className="w-full p-4 overflow-x-auto">
+        <pre className="w-full overflow-x-auto p-4">
           <code>{stack}</code>
         </pre>
       )}
