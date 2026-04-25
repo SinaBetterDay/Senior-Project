@@ -5,12 +5,15 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
+    "run:apify-agendas": "node src/jobs/runApifyAgendaScrape.js",
     "test:storage": "node scripts/test-form700-storage.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",
+    "apify-client": "^2.23.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "node-cron": "^4.2.1"
   }
 }
