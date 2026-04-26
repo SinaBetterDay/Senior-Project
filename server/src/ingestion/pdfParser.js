@@ -20,14 +20,14 @@ function normalizeText(text) {
 
 function buildAgendaItems(rawText, cityId, meetingDate) {
   const normalized = normalizeText(rawText);
-  const headerRegex = /^\s*(?:agenda\s*item\s*|item\s*)?([0-9]{1,3}|[A-Za-z])\s*(?:[.)\-:])\s*/gim;
+  const sectionRegex = /^\s*(?:agenda\s*item\s*|item\s*)?([0-9]{1,3}|[A-Za-z])\s*(?:[.)\-:])\s*/gim;
 
   const matches = [];
   let match;
-  while ((match = headerRegex.exec(normalized)) !== null) {
+  while ((match = sectionRegex.exec(normalized)) !== null) {
     matches.push({
       index: match.index,
-      itemNumber: match[1],
+      itemNumber: match[1].trim(),
       headerLength: match[0].length,
     });
   }
@@ -99,10 +99,15 @@ export async function parsePdfAgenda(pdfBuffer, cityId, meetingDate) {
   }
 
   const items = buildAgendaItems(rawText, cityId, meetingDate);
+  const rows = items.length > 0
+    ? items
+    : [{
+      city_id: cityId,
+      meeting_date: meetingDate,
+      item_number: 'unparsed',
+      item_text: rawText,
+      source_type: 'pdf',
+    }];
 
-  if (items.length === 0) {
-    return [];
-  }
-
-  return await insertAgendaItems(items);
+  return await insertAgendaItems(rows);
 }
