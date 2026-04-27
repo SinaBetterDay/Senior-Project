@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import { runApifyAgendaScrape } from './runApifyAgendaScrape.js';
+import { runNightlyLegistarSync } from './nightlySync.js';
 
 export function scheduleCronJobs() {
   const enabled = (process.env.CRON_ENABLED ?? 'true').toLowerCase() === 'true';
@@ -7,6 +8,21 @@ export function scheduleCronJobs() {
     console.log('[cron] disabled via CRON_ENABLED=false');
     return;
   }
+
+  const legistarSchedule = process.env.LEGISTAR_CRON_SCHEDULE ?? '0 2 * * *';
+  cron.schedule(legistarSchedule, async () => {
+    try {
+      console.log('[cron] starting nightly Legistar sync');
+      await runNightlyLegistarSync({
+        lookbackDays: process.env.LEGISTAR_LOOKBACK_DAYS
+          ? Number(process.env.LEGISTAR_LOOKBACK_DAYS)
+          : 30,
+      });
+    } catch (err) {
+      console.error('[cron] nightly Legistar sync failed:', err);
+    }
+  });
+  console.log('[cron] scheduled nightly Legistar sync:', legistarSchedule);
 
   // Weekly by default (Mondays at 03:10). Railway deployments should ensure only
   // one instance runs this scheduler to avoid duplicate runs.
