@@ -8,9 +8,11 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "run:apify-agendas": "node src/jobs/runApifyAgendaScrape.js",
-    "test:storage": "node scripts/test-form700-storage.mjs"
+    "test:storage": "node scripts/test-form700-storage.mjs",
+    "test": "vitest run"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.49.1",
     "apify-client": "^2.23.0",
     "cors": "^2.8.5",
@@ -18,5 +20,8 @@
     "express": "^4.21.2",
     "fuse.js": "^7.3.0",
     "node-cron": "^4.2.1"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.5"
   }
 }

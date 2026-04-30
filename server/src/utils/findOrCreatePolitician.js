@@ -1,6 +1,6 @@
 import Fuse from "fuse.js";
 import { supabase } from "../supabaseClient.js";
-//import { GoogleGenerativeAI } from "@google/generative-ai"; GEMINI
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // Variables for match score comparison
 const AUTO_MATCH_THRESHOLD = 0.85;
@@ -19,7 +19,7 @@ function normalizeName(name) {
 
 // query supabase politicians table
 async function getPoliticianCandidates(district) {
-  /*let query = supabase
+  let query = supabase
     .from("politicians")
     .select("id, name, district");
 
@@ -65,8 +65,8 @@ async function getBestFuseMatch(filerName, district) {
     politician: best.item,
     fuseScore: best.score,
     confidence: 1 - best.score,
-  };*/
-  return false; // for now GET RID OF AFTER GEMINI IS IMPLEMENTED
+  };
+  
 }
 
 async function resolveWithGemini(filerName, candidate, district) {
@@ -83,10 +83,13 @@ async function resolveWithGemini(filerName, candidate, district) {
   const prompt = `
 You are helping resolve whether two politician records refer to the same person.
 
-Return ONLY JSON:
+Return ONLY JSON in this format:
 {
   "isMatch": true
 }
+
+Use true if they are likely the same person.
+Use false if they are likely different people.
 
 Filer name: "${filerName}"
 Existing politician name: "${candidate.name}"
@@ -100,11 +103,17 @@ Rules:
 - Do not match clearly different people.
 `;
 
-  const result = await model.generateContent(prompt);
-  const text = result.response.text();
-
   try {
-    const parsed = JSON.parse(text);
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+
+    //clean the text
+    const cleanedText = text
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim();
+
+    const parsed = JSON.parse(cleanedText);
     return parsed.isMatch === true;
   } catch {
     return false;
@@ -127,7 +136,7 @@ export async function findOrCreatePolitician(filerName, district) {
     return bestMatch.politician.id;
   }
 
-  // if match score in unclear, use gemini
+  // if match score is unclear, use Gemini
   if (
     bestMatch &&
     bestMatch.confidence >= GEMINI_MIN_THRESHOLD &&
