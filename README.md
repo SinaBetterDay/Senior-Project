@@ -3,7 +3,7 @@ Full-stack compliance platform built for the California Fair Political Practices
 # Naming Convention for Branches
 dev branch where intergration occur before committing into the main.
 features branch add feature to the product.
-**#Testing**
-**#Deployment**
-**#Developer Instruction**
+# Testing
+# Deployment
+# Developer Instruction
 
