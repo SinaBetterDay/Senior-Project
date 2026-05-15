@@ -6,6 +6,6 @@ features branch add feature to the product.
 # Testing
 # Deployment
 # Developer Instruction
-
-# Jira Timeline
-
+# JIRA Timeline
+# Prototype 
+# ERD Diagram
