@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 96" role="img" aria-label="FAIR logo">
+  <defs>
+    <linearGradient id="shield" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e3a5f"/>
+      <stop offset="100%" stop-color="#0f2744"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#c9a227"/>
+      <stop offset="100%" stop-color="#e8c547"/>
+    </linearGradient>
+  </defs>
+  <rect width="320" height="96" rx="12" fill="#f8fafc"/>
+  <!-- shield -->
+  <path d="M28 18 L52 10 L76 18 L76 48 Q76 68 52 78 Q28 68 28 48 Z" fill="url(#shield)"/>
+  <path d="M40 32 L52 26 L64 32 L64 46 Q64 58 52 64 Q40 58 40 46 Z" fill="none" stroke="url(#accent)" stroke-width="2.5"/>
+  <circle cx="52" cy="42" r="6" fill="url(#accent)"/>
+  <!-- wordmark -->
+  <text x="92" y="52" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="36" font-weight="700" fill="#0f2744" letter-spacing="2">FAIR</text>
+  <text x="92" y="72" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="11" fill="#64748b" letter-spacing="0.5">Financial Accountability &amp; Interest Review</text>
+</svg>
