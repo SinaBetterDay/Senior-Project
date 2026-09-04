@@ -59,6 +59,7 @@ model Politician {
   votes                VoteRecord[]
   filings              Form700Filing[]
   conflictFlags        ConflictFlag[]
+  conflicts            Conflict[]
   scheduleAInvestments ScheduleAInvestment[]
   scheduleBRealEstate  ScheduleBRealEstate[]
   scheduleCdeIncome    ScheduleCdeIncome[]
@@ -115,6 +116,7 @@ model AgendaItem {
 
   votes         VoteRecord[]
   conflictFlags ConflictFlag[]
+  conflicts     Conflict[]
 
   @@index([meetingDate])
   @@index([cityName, meetingDate])
@@ -173,6 +175,29 @@ model ConflictFlag {
   updatedAt    DateTime    @default(now()) @updatedAt @map("updated_at")
 
   @@map("conflict_flags")
+}
+
+/// Form 700 vs agenda matches written by the conflict engine (SH-29 / SH-32).
+/// Unique on politician + item + type + source_key so two holdings can both
+/// flag the same item, while a second run of the same match inserts 0 rows.
+model Conflict {
+  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  politicianId  String     @map("politician_id") @db.Uuid
+  politician    Politician @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+  agendaItemId  String     @map("agenda_item_id") @db.Uuid
+  agendaItem    AgendaItem @relation(fields: [agendaItemId], references: [id], onDelete: Cascade)
+  conflictType  String     @map("conflict_type")
+  severity      String
+  ruleReference String     @map("rule_reference")
+  entityName    String?    @map("entity_name")
+  sourceKey     String     @map("source_key")
+  detectedAt    DateTime   @default(now()) @map("detected_at")
+
+  @@unique([politicianId, agendaItemId, conflictType, sourceKey], map: "conflicts_identity_key")
+  @@index([politicianId])
+  @@index([agendaItemId])
+  @@index([detectedAt])
+  @@map("conflicts")
 }
 
 // ---------------------------------------------------------------------------
