@@ -15,14 +15,19 @@
     "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.49.1",
     "apify-client": "^2.23.0",
-    "bullmq": "^5.76.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "ioredis": "^5.10.1",
-    "node-cron": "^4.2.1"
+    "fuse.js": "^7.3.0",
+    "multer": "^2.3.0",
+    "node-cron": "^4.2.1",
+    "pdf-parse": "^1.1.1",
+    "postgres": "^3.4.9",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0"
+    "prisma": "^6.12.0",
+    "supertest": "^7.2.2",
+    "vitest": "^4.1.5"
   }
 }

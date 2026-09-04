@@ -1,0 +1,118 @@
+Summary,Issue key,Issue id,Issue Type,Status,Project key,Project name,Project type,Project lead,Project lead id,Project description,Priority,Resolution,Assignee,Assignee Id,Reporter,Reporter Id,Creator,Creator Id,Created,Updated,Last Viewed,Resolved,Due date,Votes,Labels,Description,Environment,Watchers,Watchers Id,Original estimate,Remaining Estimate,Time Spent,Work Ratio,Σ Original Estimate,Σ Remaining Estimate,Σ Time Spent,Security Level,Custom field (Development),Custom field (Goals),Custom field (Issue color),Custom field (Rank),Sprint,Custom field (Start date),Custom field (Story point estimate),Custom field (Team),Custom field (Vulnerability),Parent,Parent key,Parent summary,Status Category,Status Category Changed
+"Schema v2 migration — schedule tables, data_sources, sync_logs",,,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,0,Infastructure/DevOps,"The Prisma schema in server/prisma/schema.prisma still defines only the 7 v1 tables, and server/prisma/migrations/ holds a loose init.sql instead of Prisma migration folders, so {{prisma migrate deploy}} (used by CI) fails. None of the tables that the Sprint 3–4 parsers, ingestion jobs and the upcoming conflict engine depend on exist yet — schedule_a_investments, schedule_b_realestate, schedule_cde_income, data_sources, sync_logs — and Politician / AgendaItem lack the columns the merged feature branches assume. SH-32 covers only the conflicts table. This story delivers the schema v2 migration that unblocks SH-28, SH-29, SH-32, SH-33 and the ingestion repair work.
+
+Acceptance criteria — definition of done
+
+* Prisma models added for {{schedule_a_investments}}, {{schedule_b_realestate}}, {{schedule_cde_income}} (with a {{schedule_type}} column), {{schedule_a2_business_positions}}, {{data_sources}} and {{sync_logs}}, each with foreign keys to {{form700_filings}} / {{politicians}} where applicable
+* {{Politician}} gains {{needs_review}} (boolean, default false); {{AgendaItem}} gains {{legistar_item_id}} (unique), {{source_type}} ({{legistar}} / {{apify}} / {{pdf}}), {{item_text}} and {{city_id}}; {{Form700Filing}} gains {{original_filename}} and {{archived_path}}
+* Team decision on camelCase Prisma models vs snake_case table names is recorded in {{supabase/CONTEXT.md}} and applied consistently with {{@@map}} / {{@map}} so the raw-SQL code in {{server/src/jobs/nightlySync.js}} and Prisma code hit the same tables
+* {{server/prisma/migrations/}} contains timestamped Prisma migration folders plus {{migration_lock.toml}}; the loose {{init.sql}} is removed or folded into the first migration
+* {{npx prisma migrate deploy}} runs cleanly against a fresh Supabase database and {{npx prisma migrate dev}} reports no drift
+* {{@prisma/client}} and {{prisma}} are declared in {{server/package.json}} and the {{""prisma"": { ""seed"": ""node prisma/seed.js"" }}} block makes {{npx prisma db seed}} insert the sample politicians
+* {{server/src/parsers/scheduleA.js}}, {{nightlySync.js}} and {{findOrCreatePolitician.js}} reference only tables and columns that exist in the new schema",,,,,,,,,,,,,,,,SH Sprint 5,,8,,,10957,SH-175,191 Epic,To Do,
+"Backend auth middleware & shared libs (lib/auth.js, lib/prisma.js, lib/storage.js)",,,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,0,Infastructure/DevOps,"server/src/routes/admin/upload.js imports lib/prisma.js, lib/auth.js and lib/storgae.js, none of which exist — the server/src/lib/ folder is missing entirely. Every admin route (SH-15, SH-48, SH-49, SH-50, SH-62) and the security audit (SH-58) depend on a single backend guard that verifies the Supabase session JWT and returns 401, and on one shared Prisma client and one storage helper. This story creates that shared server library layer.
+
+Acceptance criteria — definition of done
+
+* {{server/src/lib/prisma.js}} exports a single shared {{PrismaClient}} instance (singleton, reused across {{node --watch}} reloads) and is the only place {{new PrismaClient()}} is called
+* {{server/src/lib/auth.js}} exports {{requireAdmin(req, res, next)}} Express middleware that reads the {{Authorization: Bearer <jwt>}} header, verifies it with the Supabase service-role client ({{supabase.auth.getUser}}), attaches {{req.user}}, and responds {{401 { error: ""unauthorized"" }}} on a missing, invalid or expired token
+* {{server/src/lib/storage.js}} exports {{archiveWorkbook(buffer, filename)}} that uploads to the private {{form700-uploads}} bucket (SH-16) and returns the storage path, plus {{getWorkbook(path)}} for retrieval
+* {{server/src/supabaseClient.js}} is consolidated into {{lib/}} so there is exactly one Supabase client module on the server
+* Unit tests with a mocked Supabase client cover: valid token passes through, missing header → 401, expired/invalid token → 401
+* {{server/.env.example}} lists {{SUPABASE_URL}}, {{SUPABASE_SERVICE_ROLE_KEY}} and {{DATABASE_URL}} with one-line descriptions; no real values are committed",,,,,,,,,,,,,,,,SH Sprint 5,,5,,,10957,SH-175,191 Epic,To Do,
+"Wire the Express app — mount routers, CORS, error handler",,,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,0,Infastructure/DevOps,"server/src/index.js currently mounts only GET /health. Route files exist under server/src/routes/ (conflicts.js, politicians.js, agenda.js, search.js, admin/upload.js, admin/sources.js, admin/reports.js) but none are imported or mounted, so nothing in the client can be exercised end to end. This story turns index.js into the real application server.
+
+Acceptance criteria — definition of done
+
+* {{server/src/index.js}} mounts {{/api/admin/upload}}, {{/api/admin/sources}} and {{/api/admin/reports}} behind {{requireAdmin}} from {{server/src/lib/auth.js}}, and {{/api/conflicts}}, {{/api/politicians}}, {{/api/agenda}}, {{/api/search}} publicly
+* CORS configured with the {{cors}} package; allowed origin read from a {{CLIENT_ORIGIN}} env variable (default {{http://localhost:5173}})
+* JSON body parsing enabled globally; multipart parsing (multer, 10 MB limit) applied only on the upload route
+* A final error-handling middleware returns {{{ error: message }}} with the correct HTTP status and never returns a stack trace when {{NODE_ENV=production}}; unknown routes return {{404 { error: ""not found"" }}}
+* {{GET /health}} returns {{200 { status: ""ok"" }}} (the SH-36 contract) and the server listens on {{PORT}} (default 3001)
+* {{client/app/routes/admin.sources.tsx}} reads the API base URL from {{VITE_API_URL}} instead of the hardcoded {{localhost:3000}}
+* {{node --check}} passes for every file under {{server/src/}} and {{npm start}} boots with zero import errors",,,,,,,,,,,,,,,,SH Sprint 5,,3,,,10957,SH-175,191 Epic,To Do,
+Admin login — real Supabase Auth (re-open SH-41),,,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,0,Frontend/UI,"SH-41 was closed as Done, but client/app/routes/admin.login.tsx is a placeholder: it sets localStorage.isAdmin = ""true"" and redirects. There is no Supabase client in client/, no email field, no session, no logout, and the backend never receives a token. SH-48, SH-49 and SH-50 all require real admin authentication, so this story re-opens SH-41 and delivers it against the original acceptance criteria.
+
+Acceptance criteria — definition of done
+
+* {{@supabase/supabase-js}} installed in {{client/}}; one client created from {{VITE_SUPABASE_URL}} and {{VITE_SUPABASE_ANON_KEY}} (anon key only — the service-role key is never shipped to the browser)
+* {{/admin/login}} renders email and password fields; {{signInWithPassword}} success stores the Supabase session and redirects to {{/admin/sources}}; failure shows an inline error and does not redirect
+* A route guard/loader wraps every {{/admin/*}} route and redirects to {{/admin/login}} when there is no valid session; public routes ({{/}}, {{/conflicts}}, {{/politicians}}, {{/about}}) are untouched
+* Every admin API call sends {{Authorization: Bearer <access_token>}}; a 401 from the backend clears the session and redirects to login
+* Logout button calls {{signOut}}, clears the session and redirects to {{/admin/login}}
+* {{localStorage.isAdmin}} and every reference to it are removed from {{client/}}
+* Manually verified: opening {{/admin/sources}} in an incognito tab redirects to login; after login a page refresh keeps the session",,,,,,,,,,,,,,,,SH Sprint 6,,5,,,10957,SH-175,191 Epic,To Do,
+"Repair Form 700 ingestion — fix upload.js, unify parsers, link filer to politician",,,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,0,Data_Ingestion,"The Sprint 3 Form 700 stories were closed, but the pieces do not fit together. server/src/routes/admin/upload.js does not parse (import path ""../..parsers/scheduleA.js"", semicolons inside object literals, archivedWrokbook typo, imports of lib files that do not exist) and is not mounted. server/src/parsers/scheduleA.js writes to prisma without importing it, scheduleB.js takes a workbook object and returns agency instead of county, and scheduleCDE.js never inserts. SH-23's findOrCreatePolitician was never called from the upload flow, so uploads still require a manually supplied politician_id. This story makes upload → parse → insert → archive actually work end to end.
+
+Acceptance criteria — definition of done
+
+* All three parsers share one signature — {{parseScheduleX(buffer, filingId)}} returns an array of snake_case row objects and performs no DB writes; {{upload.js}} inserts them inside a single {{prisma.$transaction}}
+* {{server/src/parsers/scheduleB.js}} returns {{county}} (not {{agency}}) and title-cases {{city}} / {{county}}; the {{//ISSUE}} comment is resolved
+* New {{parseCoverPage(buffer)}} extracts filer name, agency/district and filing year from the Cover Page sheet; upload calls {{findOrCreatePolitician(filerName, district)}} (SH-23) so {{politician_id}} is no longer a required form field
+* {{upload.js}} imports {{lib/prisma.js}}, {{lib/auth.js}} and {{lib/storage.js}}, validates the XLSX MIME type, rejects files over 10 MB with 413, and returns {{{ filing_id, politician_id, schedules_parsed: { A, B, CDE }, archived_path }}}
+* If any parser or insert throws, the transaction rolls back and no {{form700_filings}} row or storage object is left behind
+* Uploading the same filer + filing year twice returns 409 with a clear message
+* {{npm test}} exercises the flow with the fixtures in {{server/tests/fixtures/}}: valid XLSX, non-XLSX renamed to {{.xlsx}}, unauthenticated request, duplicate filing",,,,,,,,,,,,,,,,SH Sprint 5,,8,,,10957,SH-175,191 Epic,To Do,
+Form 700 XLSX parser — Schedule A-2 (business positions),,,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,0,Parsing/Processing,"CLAUDE.md lists Schedule A-2 (investments, income and assets of business entities/trusts, including business positions held) as one of the Form 700 schedules FAIR ingests, and SH-27 / SH-29 require detecting business-position conflicts — but no parser story exists and there is no A-2 table. This story adds the missing parser following the pattern of server/src/parsers/scheduleA.js and scheduleB.js.
+
+Acceptance criteria — definition of done
+
+* {{parseScheduleA2(buffer, filingId)}} is a named exported function in {{server/src/parsers/scheduleA2.js}} that reuses the helpers in {{server/src/parsers/parserUtils.js}}
+* Returns rows shaped {{{ entity_name, business_position, fair_market_value, nature_of_investment, gross_income_range, filing_id }}}; returns an empty array (does not throw) when the A-2 sheet is missing
+* Rows are inserted into {{schedule_a2_business_positions}} by the upload transaction and the upload summary gains {{A2: n}}
+* Tested in {{server/tests/unit/}} against at least 3 real Form 700 XLSX fixtures, including one with no A-2 sheet
+* {{docs/fair/form700-ingestion/CONTEXT.md}} documents the A-2 column mapping
+* The SH-29 detector can query business positions by {{politician_id}} through Prisma",,,,,,,,,,,,,,,,SH Sprint 5,,5,,,10957,SH-175,191 Epic,To Do,
+"Apify → PDF pipeline wiring (download, parsePdfAgenda, upsert agenda_items)",,,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,0,Data_Ingestion,"server/src/jobs/runApifyAgendaScrape.js fetches { pdf_url, meeting_date, city_name } items from the Apify actor (SH-22) but stops at a // TODO: pass items into your existing PDF parsing pipeline. The PDF parser parsePdfAgenda (SH-21) lives in server/src/ingestion/pdfParser.js and writes through the Supabase JS client rather than Prisma. Nothing connects the two, so non-Legistar cities never get agenda_items rows. This story completes the Apify → PDF → DB path so SH-33 and SH-57 can rely on it.
+
+Acceptance criteria — definition of done
+
+* {{runApifyAgendaScrape}} downloads each {{pdf_url}} (30 s timeout, 20 MB max), calls {{parsePdfAgenda(buffer, cityId, meetingDate)}} and upserts the resulting rows into {{agenda_items}} keyed on {{(city_id, meeting_date, item_number)}} — re-running produces no duplicates
+* {{server/src/ingestion/pdfParser.js}} converted to Prisma via {{server/src/lib/prisma.js}} and returns rows instead of inserting, matching the parser convention used for Form 700
+* Each city processed is looked up or created in {{data_sources}} with {{source_type = ""apify""}}, and {{last_synced_at}} / {{last_error}} are updated
+* One failing PDF (404, password-protected, image-only) is logged with its URL and skipped — the run continues with the next item
+* Run summary written to {{sync_logs}}: city, PDFs fetched, items inserted, items skipped, errors
+* Verified end to end against at least 2 real CA cities from the actor output; the new rows show up in the {{/admin/sources}} item counts
+* The weekly node-cron schedule in {{server/src/jobs/scheduleCronJobs.js}} is unchanged and a manual trigger exists: {{npm run run:apify-agendas -- --city <name>}}",,,,,,,,,,,,,,,,SH Sprint 6,,5,,,10957,SH-175,191 Epic,To Do,
+"Public REST API — conflicts, politicians, agenda items, search",,,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,0,Infastructure/DevOps,"SH-44, SH-45, SH-46, SH-47 and SH-53 are UI-only stories that assume backend endpoints for conflicts, politicians, agenda items and search. server/src/routes/conflicts.js, politicians.js, agenda.js and search.js exist but are empty stubs. This story delivers the public, no-login REST API those pages consume, built on Prisma and the schema from the v2 migration and SH-32.
+
+Acceptance criteria — definition of done
+
+* {{GET /api/conflicts}} supports {{city}}, {{type[]}}, {{severity[]}}, {{from}}, {{to}}, {{sort}} ({{severity}} | {{detected_at}}), {{page}} and {{pageSize}} (default 25) and returns {{{ data, total, page, pageSize }}}
+* {{GET /api/conflicts/:id}} returns the conflict joined with politician, the triggering Form 700 schedule row, full agenda item text, meeting date, city and {{rule_reference}}; an unknown id returns 404 JSON
+* {{GET /api/politicians}} returns name, district, city and conflict count; {{GET /api/politicians/:id}} returns filings and conflicts
+* {{GET /api/agenda/:id}} returns item text, meeting date, city, {{source_type}} and linked conflicts
+* {{GET /api/search?q=}} uses a Postgres {{tsvector}} index (migration included) across politicians, agenda items and conflicts, returns results grouped by type, and completes in under 500 ms on the seeded dataset
+* All endpoints respond without an {{Authorization}} header, validate and clamp query params, and return consistent {{{ error }}} bodies on 400 / 404
+* Supertest tests in {{server/tests/integration/}} cover each endpoint's happy path, empty result and invalid id",,,,,,,,,,,,,,,,SH Sprint 6,,8,,,10957,SH-175,191 Epic,To Do,
+Admin CRUD APIs — politicians and data sources (replace mock),,,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,0,Infastructure/DevOps,"SH-48 (politician management UI) and SH-49 (manage data sources UI) describe admin screens but no backend story exists for them. server/src/routes/admin/sources.js serves hardcoded mock data from server/src/config/adminSources.js and is not mounted; there is no admin politicians route at all. This story provides the authenticated CRUD APIs and removes the mock.
+
+Acceptance criteria — definition of done
+
+* {{/api/admin/politicians}}: {{GET}} (list incl. {{needs_review}}), {{POST}}, {{PUT /:id}}, {{DELETE /:id}}; body validated (name, district, city required); delete returns 409 with an explanation when the politician has linked {{form700_filings}}
+* {{/api/admin/sources}}: {{GET}} (type, last sync time, item count, last error), {{POST}}, {{PUT /:id}}, {{DELETE /:id}}; delete preserves already-ingested {{agenda_items}}
+* {{POST}} / {{PUT}} on a Legistar source performs a live test call through {{server/src/legistar-api.js}} ({{getMeetings(baseUrl, 1)}}) and returns 400 with the upstream error if it fails; Apify sources validate the actor id via the Apify API
+* {{POST /api/admin/sources/:id/sync}} triggers {{runLegistarSyncForCity}} or {{runApifyAgendaScrape}} for that source and returns a run id whose status can be read from {{sync_logs}}
+* All routes sit behind {{requireAdmin}} and return 401 without a valid session — verified with raw HTTP calls
+* {{server/src/config/adminSources.js}} is deleted and {{client/app/routes/admin.sources.tsx}} reads live data from the new endpoints
+* Integration tests cover create / edit / delete for both resources plus the blocked-delete case",,,,,,,,,,,,,,,,SH Sprint 6,,5,,,10957,SH-175,191 Epic,To Do,
+"Activate CI workflow & test runner (rename .yml.txt, vitest, fix parser unit tests)",,,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,0,Testing/QA,"The GitHub Actions workflow is committed as .github/workflows/ci-cdyml.yml.txt — GitHub ignores the .txt extension, so CI has never run despite SH-38 being Done. The workflow calls npm test and prisma migrate deploy, yet the three parser unit tests under server/tests/unit/ assert camelCase keys (entityName) while the parsers return snake_case (entity_name), and pass file paths where the parsers expect buffers, so they fail when run. SH-34, SH-51 and SH-63 cannot pass until the runner is green.
+
+Acceptance criteria — definition of done
+
+* {{.github/workflows/ci-cdyml.yml.txt}} renamed to {{.github/workflows/ci.yml}}; it appears in the repository's Actions tab and runs on every PR to {{dev}} and {{main}}
+* {{vitest}} and {{supertest}} are declared as devDependencies and {{@prisma/client}} / {{prisma}} as dependencies in {{server/package.json}}, with scripts {{""test"": ""vitest run tests/unit""}} and {{""test:integration"": ""vitest run tests/integration""}}
+* {{prisma generate}} and {{prisma migrate deploy}} steps succeed in CI against the Postgres service container
+* {{scheduleA.test.js}}, {{scheduleB.test.js}} and {{scheduleCDE.test.js}} updated to pass buffers and assert snake_case fields; {{npm test}} passes locally with 0 failures
+* The CI run is green on a PR to {{dev}} and the {{test}} job is marked as a required status check so a red run blocks merge
+* Deploy job targets Railway (matching {{README.md}} and SH-60) and runs only on push to {{main}}",,,,,,,,,,,,,,,,SH Sprint 5,,2,,,10957,SH-175,191 Epic,To Do,
+Votes ingestion — populate VoteRecord from Legistar getVotes (optional),,,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Low,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,0,Data_Ingestion,"The Prisma schema defines a VoteRecord model and server/src/legistar-api.js exposes getVotes(baseUrl, matterId) (SH-19), but no story consumes either — votes are never fetched or stored. Recorded votes would let FAIR show whether a politician actually voted on an item they had a flagged interest in, strengthening the conflict detail page. Optional: if the client does not want vote data, drop the VoteRecord table instead.
+
+Acceptance criteria — definition of done
+
+* Client decision recorded (keep votes vs drop table); if dropped, {{VoteRecord}} is removed via a Prisma migration and this story is closed
+* If kept: the nightly Legistar sync in {{server/src/jobs/nightlySync.js}} calls {{getVotes}} for each newly ingested matter and upserts {{vote_records}} rows ({{agenda_item_id}}, {{politician_id}}, {{vote}}, {{vote_date}}) with no duplicates on re-run
+* Politician names returned by Legistar are resolved through {{findOrCreatePolitician}} so votes link to existing records
+* {{GET /api/conflicts/:id}} includes the politician's recorded vote on the agenda item when one exists
+* Conflict detail page shows ""Voted: Yes / No / Abstain / Absent"" or ""No vote recorded""
+* One city's vote endpoint failing does not stop the rest of the sync",,,,,,,,,,,,,,,,SH Sprint 7,,3,,,10957,SH-175,191 Epic,To Do,

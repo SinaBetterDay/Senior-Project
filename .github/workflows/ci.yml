@@ -27,8 +27,12 @@ jobs:
           --health-retries 5
 
     env:
+      # schema.prisma uses both url (pooled) and directUrl (migrations); in CI they
+      # point at the same service container.
       DATABASE_URL: postgresql://test:test@localhost:5432/fair_test
+      DIRECT_URL: postgresql://test:test@localhost:5432/fair_test
       NODE_ENV: test
+      CRON_ENABLED: "false"
 
     steps:
       - name: Checkout code
@@ -45,11 +49,15 @@ jobs:
         working-directory: server
         run: npm ci
 
+      - name: Generate Prisma client
+        working-directory: server
+        run: npx prisma generate
+
       - name: Run Prisma migrations
         working-directory: server
         run: npx prisma migrate deploy
 
-      - name: Run tests
+      - name: Run unit tests
         working-directory: server
         run: npm test
 

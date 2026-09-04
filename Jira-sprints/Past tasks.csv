@@ -1,0 +1,189 @@
+Summary,Issue key,Issue id,Issue Type,Status,Project key,Project name,Project type,Project lead,Project lead id,Project description,Priority,Resolution,Assignee,Assignee Id,Reporter,Reporter Id,Creator,Creator Id,Created,Updated,Last Viewed,Resolved,Due date,Votes,Labels,Description,Environment,Watchers,Watchers Id,Original estimate,Remaining Estimate,Time Spent,Work Ratio,Σ Original Estimate,Σ Remaining Estimate,Σ Time Spent,Security Level,Custom field (Collaborators),Custom field (Collaborators)Id,Custom field (Development),Custom field (Goals),Custom field (Issue color),Custom field (Rank),Sprint,Custom field (Start date),Custom field (Story point estimate),Custom field (Team),Custom field (Vulnerability),Parent,Parent key,Parent summary,Status Category,Status Category Changed
+Connect to Supabase & run DB migrations,SH-11,10078,Story,Done,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,Done,Luis Meza,712020:668fa5ad-9613-441a-a76c-2097d6335234,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:31 PM,12/Apr/26 8:03 PM,,12/Apr/26 8:03 PM,,0,Infastructure/DevOps,"Update the Prisma DATABASE_URL to point to the client's Supabase PostgreSQL instance. Run the first migration to create all v1 tables defined in Sprint 2. Seed the politicians table with a small set of sample California politicians for use in testing throughout the project.
+
+* Running npx prisma migrate dev creates all 7 tables in the Supabase database with no errors
+* Running npx prisma studio shows all tables are visible and correctly structured
+* A seed script (npx prisma db seed) inserts at least 5 sample politician records
+* DATABASE_URL is stored in .env and never committed to GitHub
+* Migration files are committed to /prisma/migrations/ in the repo",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,,,{},,,0|i0001r:,SH Sprint 3,,3.0,,,10037,SH-5,190 Epic,Done,12/Apr/26 8:03 PM
+Configure Supabase Storage for XLSX uploads,SH-16,10083,Story,Done,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,Done,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:40 PM,07/Apr/26 4:41 PM,,07/Apr/26 4:41 PM,,0,Infastructure/DevOps,"Set up a private storage bucket in Supabase called {{form700-uploads}}. Configure bucket policies so only the backend service role can read and write to it. The bucket will store a copy of every raw XLSX file submitted so there is always an audit trail of the original filing.
+
+*Acceptance criteria:*
+
+* A bucket named {{form700-uploads}} exists in Supabase Storage
+* Bucket is set to private — direct public URL access returns an error
+* Backend can successfully upload a test XLSX file to the bucket using the Supabase service role key
+* Backend can retrieve the file by path using the service role key
+* Supabase service role key is stored in {{.env}} and not committed to the repo",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,,,{},,,0|i0001w:,SH Sprint 3,,3.0,,,10037,SH-5,190 Epic,Done,07/Apr/26 4:41 PM
+Admin login — Supabase Auth,SH-41,10108,Story,Done,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,Done,Leah Smith,712020:5dc48e9b-597d-4549-a106-60758bfac1de,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 6:23 PM,13/Apr/26 7:40 AM,,13/Apr/26 7:40 AM,12/Apr/26 12:00 AM,0,Infastructure/DevOps,"Implement authentication for the admin panel using Supabase Auth. There is one admin user (created manually in Supabase dashboard — no registration UI needed). The frontend should have a /admin/login page. All /admin/* routes redirect to login if the session is missing. All public-facing routes remain fully accessible without any login.
+
+*Acceptance Criteria:*
+
+* GET /admin/login renders a login form with email and password fields
+* Submitting correct credentials stores a Supabase session and redirects to /admin/dashboard
+* Submitting incorrect credentials shows an error message and does not redirect
+* Visiting any /admin/* route while logged out redirects to /admin/login
+* Visiting any public route (e.g. /, /conflicts, /politicians) while logged out works normally with no redirect
+* Logout clears the session and redirects to /admin/login",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,,,{},,,0|i0001x:,SH Sprint 3,,3.0,,,10037,SH-5,190 Epic,Done,13/Apr/26 7:40 AM
+Form 700 XLSX parser — Schedule A (stocks),SH-12,10079,Story,Done,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,Done,Rhys Honaker,712020:10af4543-7f78-410a-85fa-e6031feeb606,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:32 PM,12/Apr/26 6:47 PM,,12/Apr/26 6:47 PM,12/Apr/26 12:00 AM,0,Data_Ingestion,"Write a parser function that accepts a Form 700 XLSX document and extracts all Schedule A entries (investments and financial interests). Each entry should be inserted as a row in the schedule_a_investments table, linked to the correct filing and politician record.
+
+Acceptance criteria
+
+* parseScheduleA(xlsxString, filingId) is a named exported function that accepts an XLSX string and a filing ID
+* Function returns an array of structured objects: { entity_name, fair_market_value, nature_of_investment, politician_id, filing_id }
+* All returned records are inserted into the schedule_a_investments table
+* Function handles missing or empty Schedule A gracefully — returns an empty array, does not throw
+* Tested against at least 3 real Form 700 XLSX samples including one with no Schedule A entries
+* console.log or logger outputs how many records were inserted on completion",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,,,{},,,0|i0001z:,SH Sprint 3,,5.0,,,10037,SH-5,190 Epic,Done,12/Apr/26 6:47 PM
+Form 700 XLSX parser — Schedule B (real estate),SH-13,10080,Story,Done,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,Done,Karla Ramirez,712020:bdeaa289-0dda-4434-9e5b-2ceb5735860e,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:39 PM,12/Apr/26 2:39 AM,,12/Apr/26 2:39 AM,12/Apr/26 12:00 AM,0,Data_Ingestion,"Write a parser function for Schedule B entries (real property interests). Each property should be inserted into the schedule_b_realestate table with city, county, parcel description, fair market value, and nature of interest. Normalize city and county names to consistent casing on insert.
+
+Acceptance criteria
+
+* parseScheduleB(xmlString, filingId) is a named exported function
+* Returns structured objects: { property_description, city, county, fair_market_value, nature_of_interest, filing_id }
+* City and county fields are stored in consistent title case (e.g. ""Los Angeles"" not ""LOS ANGELES"")
+* Function handles missing Schedule B gracefully — returns empty array, does not throw
+* Tested against at least 3 sample XML files",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,,,{},,,0|i00027:,SH Sprint 3,,5.0,,,10037,SH-5,190 Epic,Done,12/Apr/26 2:39 AM
+"Form 700 XLSX parser — Schedules C/D/E (income, gifts, travel)",SH-14,10081,Story,Done,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,Done,Mao Vang,712020:bf67980c-d12e-4cb4-9dd5-6ddf84957db8,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:40 PM,12/Apr/26 9:33 PM,,12/Apr/26 9:33 PM,12/Apr/26 12:00 AM,0,Data_Ingestion,"Write parser functions for the remaining Form 700 schedules: Schedule C (income and loans received), Schedule D (gifts received), and Schedule E (travel payments). Each maps to a shared schedule_cde_income table with a schedule_type column to distinguish them.
+
+Acceptance criteria
+
+* parseScheduleCDE(xlsxString, filingId) handles all three schedules in one function or three clearly named sub-functions
+* Each record includes: source_name, amount, schedule_type (C, D, or E), filing_id
+* Records are inserted into the schedule_cde_income table with the correct schedule_type value
+* Function handles XLSXs with any combination of missing schedules without throwing
+* Tested with samples containing only C, only D, all three, and none",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,,,{},,,0|i0002f:,SH Sprint 3,,5.0,,,10037,SH-5,190 Epic,Done,12/Apr/26 9:33 PM
+Form 700 file upload endpoint,SH-15,10082,Story,Done,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,Done,Jumana Abdullah,712020:6cc974a9-19c2-458d-bc16-0d3729095c89,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:40 PM,12/Apr/26 3:00 PM,,12/Apr/26 3:00 PM,,0,Data_Ingestion,"Build the backend endpoint that ties the upload flow together. It accepts a multipart XLSX file upload, validates that the file is a well-formed Excel document with a recognizable Form 700 sheet structure, creates a filing record linked to the correct politician, runs all schedule parsers, archives the raw file to Supabase Storage, and returns an ingestion summary.
+
+*Acceptance criteria:*
+
+* {{POST /api/admin/upload/form700}} accepts {{multipart/form-data}} with an {{.xlsx}} file field
+* Returns HTTP 401 if the request is not from an authenticated admin session
+* Returns HTTP 400 if the file is not a valid {{.xlsx}} MIME type ({{application/vnd.openxmlformats-officedocument.spreadsheetml.sheet}})
+* Returns HTTP 400 if the workbook does not contain any recognizable Form 700 sheet names
+* On success: creates a {{form700_filings}} row, runs all schedule parsers, archives file to Supabase Storage
+* Returns HTTP 200 with JSON summary: {{{ filing_id, politician_id, schedules_parsed: { A: n, B: n, CDE: n }, archived_path }}}
+* Entire operation is wrapped in a DB transaction — if any parser fails, no partial records are committed
+* Tested with: a valid XLSX, a non-XLSX file with a {{.xlsx}} extension, an unauthenticated request, and a duplicate filing",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,,,{},,,0|i0002n:,SH Sprint 3,,5.0,,,10037,SH-5,190 Epic,Done,12/Apr/26 3:00 PM
+Unit tests for Form 700 parsers,SH-18,10085,Story,Done,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,Done,Ishkaram Gill,712020:401af73f-83b2-4880-a782-5d9917dceefb,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:40 PM,13/Apr/26 8:58 AM,,13/Apr/26 8:58 AM,12/Apr/26 12:00 AM,0,Testing/QA,"Write unit tests for all four parser functions (Schedule A, B, CDE, and the upload endpoint). Use real Form 700 XLSX files as fixtures. Tests should cover the happy path, missing schedules, malformed values, and duplicate filing attempts.
+
+Acceptance criteria
+
+* Test files are stored in /tests/fixtures/ as real Form 700 XLSX samples
+* Each parser function has tests for: valid input with data, valid input with empty schedule, and malformed XLSX input
+* Upload endpoint tests cover: valid file, non-XLSX file, unauthenticated request, and duplicate filing
+* npm test runs all tests and reports results without manual setup
+* Overall test coverage for parser files is at or above 80% (measured via nyc or vitest coverage)",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,,,{},,,0|i0002r:,SH Sprint 3,,3.0,,,10037,SH-5,190 Epic,Done,13/Apr/26 8:58 AM
+Legistar API client wrapper,SH-19,10086,Story,Done,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,Done,Rhys Honaker,712020:10af4543-7f78-410a-85fa-e6031feeb606,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:43 PM,27/Apr/26 6:46 AM,,27/Apr/26 6:46 AM,26/Apr/26 12:00 AM,0,Data_Ingestion,"Build a reusable JavaScript module that wraps the Legistar REST API. It should expose clean async functions for the operations the ingestion job needs: fetching a list of upcoming meetings, fetching agenda items for a meeting, and fetching votes for a matter. The base URL should be configurable per city so the same module works for all Legistar jurisdictions.
+
+Acceptance criteria
+
+* Module exports at least: getMeetings(baseUrl, limit), getAgendaItems(baseUrl, meetingId), getVotes(baseUrl, matterId)
+* Each function accepts a city baseUrl as its first argument — no hardcoded URLs in the module
+* Each function returns a normalized JS object array regardless of minor differences in Legistar API responses across cities
+* Functions throw a descriptive error if the API returns a non-200 status
+* Module is tested manually against at least one live CA Legistar URL and returns real data
+* Rate limit backoff: if a 429 is received, the function waits 2 seconds and retries once before throwing",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,,,{},,,0|i0003j:,SH Sprint 4,,5.0,,,10037,SH-5,190 Epic,Done,27/Apr/26 6:46 AM
+Agenda item ingestion job — Legistar,SH-20,10087,Story,Done,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,Done,Luis Meza,712020:668fa5ad-9613-441a-a76c-2097d6335234,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:44 PM,26/Apr/26 11:48 PM,,26/Apr/26 11:48 PM,26/Apr/26 12:00 AM,0,Data_Ingestion,"Build a background job that runs on a schedule (using node-cron) and fetches new meeting agendas from all configured Legistar cities. For each new agenda item found, insert a row into the agenda_items table. Skip items that already exist in the DB to avoid duplicates (upsert on legistar_id).
+
+Acceptance criteria
+
+* Job runs automatically on a configurable cron schedule (default: every night at 2am)
+* Job iterates over all cities stored in the data_sources table with type ""legistar""
+* For each city, fetches meetings from the last 30 days and all their agenda items
+* Inserts new agenda_items rows; skips (does not duplicate) items already in DB using upsert on legistar_item_id
+* On completion logs: city name, items found, items inserted, items skipped
+* Job failure for one city does not stop processing of remaining cities",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,,,{},,,0|i0003r:,SH Sprint 4,,5.0,,,10037,SH-5,190 Epic,Done,26/Apr/26 11:48 PM
+Background job queue setup,SH-25,10092,Story,Done,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,Done,Leah Smith,712020:5dc48e9b-597d-4549-a106-60758bfac1de,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:44 PM,26/Apr/26 11:24 PM,,26/Apr/26 11:24 PM,26/Apr/26 12:00 AM,0,Infastructure/DevOps,"Integrate BullMQ as the job queue manager backed by Upstash Redis (free tier). Create two queues: agenda-ingestion for Legistar sync jobs and conflict-detection for running the conflict engine after new agendas arrive. Jobs should retry up to 3 times on failure with exponential backoff.
+
+Acceptance criteria
+
+* BullMQ is installed and connected to Upstash Redis using the UPSTASH_REDIS_URL env variable
+* Two queues exist: agenda-ingestion and conflict-detection
+* Jobs added to agenda-ingestion are processed by the Legistar ingestion job worker
+* Failed jobs retry up to 3 times with exponential backoff (1s, 2s, 4s delays)
+* After 3 failures the job moves to a dead-letter queue and logs an error with the job payload
+* UPSTASH_REDIS_URL is stored in .env and not committed to the repo",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,,,{},,,0|i0003v:,SH Sprint 4,,5.0,,,10037,SH-5,190 Epic,Done,26/Apr/26 11:24 PM
+PDF agenda parser for non-Legistar cities,SH-21,10088,Story,Done,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,Done,Mao Vang,712020:bf67980c-d12e-4cb4-9dd5-6ddf84957db8,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:44 PM,26/Apr/26 9:32 AM,,26/Apr/26 9:32 AM,26/Apr/26 12:00 AM,0,Parsing/Processing,"For cities that do not use Legistar and only publish agenda PDFs on their website, build a parser that accepts a PDF file buffer, extracts the raw text using pdf-parse (free npm package), and attempts to split it into individual agenda item sections. Each identified section is stored as an agenda_item row linked to the correct city and meeting date. This is the hardest story in Sprint 4 — PDF formatting varies wildly between cities.
+
+Acceptance criteria
+
+* parsePdfAgenda(pdfBuffer, cityId, meetingDate) is a named exported async function
+* Function uses pdf-parse to extract raw text from the PDF buffer
+* Extracted text is split into individual agenda items using section number patterns (e.g. ""1."", ""Item 1:"", ""A."") — regex must handle at least 3 common formats
+* Each identified item is inserted into agenda_items with: city_id, meeting_date, item_number, item_text, source_type=""pdf""
+* If no recognizable item pattern is found, the full extracted text is stored as a single agenda_item with item_number=""unparsed""
+* Function does not throw on password-protected or image-only PDFs — logs a warning and returns empty array
+* Tested against real agenda PDFs from at least 2 different CA cities with different formatting",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,,,{},,,0|i0003z:,SH Sprint 4,,8.0,,,10037,SH-5,190 Epic,Done,26/Apr/26 9:32 AM
+Apify actor for city website scraping,SH-22,10089,Story,Done,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,Done,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:44 PM,25/Apr/26 2:46 PM,,25/Apr/26 2:46 PM,26/Apr/26 12:00 AM,0,Data_Ingestion,"Configure an Apify web scraper actor on the client's Apify account to crawl the city council meeting pages of cities not covered by Legistar. The actor should return a list of agenda PDF URLs with associated meeting dates. These URLs are then passed to the PDF parser. Use Apify's free tier — keep actor runs to a reasonable frequency.
+
+Acceptance criteria
+
+* Actor is created and saved in the client's Apify account (not a personal account)
+* Actor accepts a startUrl input and crawls up to 2 levels deep looking for PDF links on agenda/meeting pages
+* Actor output is a JSON array of: { pdf_url, meeting_date (if detectable), city_name }
+* Actor successfully returns results for at least 2 target CA cities when run manually
+* Actor run is triggerable from the backend via the Apify API using an API key stored in .env
+* Actor runtime stays within Apify free tier limits for a weekly run schedule",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,,,{},,,0|i00047:,SH Sprint 4,,5.0,,,10037,SH-5,190 Epic,Done,25/Apr/26 2:46 PM
+Scaffold frontend project,SH-35,10102,Story,Done,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,Done,Karla Ramirez,712020:bdeaa289-0dda-4434-9e5b-2ceb5735860e,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 6:19 PM,23/Mar/26 10:44 PM,,23/Mar/26 10:44 PM,23/Mar/26 12:00 AM,0,Infastructure/DevOps,"Create the React frontend using Vite as the build tool. Install and configure Tailwind CSS for styling and React Router for navigation. Establish the folder structure the whole team will follow (pages/, components/, hooks/, utils/). Push to the main GitHub repo under a /client or /frontend directory.
+
+Acceptance criteria
+
+* Running npm run dev starts the app locally on localhost with no errors
+* Tailwind CSS is configured — a test element with a Tailwind class (e.g. bg-blue-500) renders correctly
+* React Router is installed, and a placeholder route for ""/"" renders a ""Hello FAIR"" page
+* Folder structure matches the agreed layout: pages/, components/, hooks/, utils/
+* Code is pushed to the dev branch on GitHub, and a PR is opened for team review",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,Ishkaram Gill,712020:401af73f-83b2-4880-a782-5d9917dceefb,{},,,0|i00073:,SH Sprint 2,,3.0,,,10037,SH-5,190 Epic,Done,23/Mar/26 10:44 PM
+Scaffold backend project,SH-36,10103,Story,Done,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,Done,Luis Meza,712020:668fa5ad-9613-441a-a76c-2097d6335234,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 6:19 PM,18/Jun/26 4:15 PM,24/Jul/26 11:17 PM,23/Mar/26 11:13 PM,,0,Infastructure/DevOps,"Create the Node.js backend using Express as the web framework. Install Prisma as the ORM for database access and .env for environment variable management. Create a GET /health endpoint that returns a 200 OK response Push to the repo under a /server or /backend directory.
+
+Acceptance criteria
+
+* Running node index.js or npm start starts the Express server on a configurable port (default 3001) with no errors
+* GET /health returns HTTP 200 with JSON body { status: ""ok"" }
+* Prisma is installed and prisma/schema.prisma file exists with a placeholder model
+* A .env.example file is committed listing all required environment variable keys (no real values)
+* Code is on the dev branch and passes a basic PR review",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,Leah Smith,712020:5dc48e9b-597d-4549-a106-60758bfac1de,{},,,0|i0007b:,SH Sprint 2,,3.0,,,10037,SH-5,190 Epic,Done,23/Mar/26 11:13 PM
+Set up GitHub branch strategy,SH-37,10104,Story,Done,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,Done,Mao Vang,712020:bf67980c-d12e-4cb4-9dd5-6ddf84957db8,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 6:19 PM,23/Mar/26 11:11 PM,,23/Mar/26 11:11 PM,23/Mar/26 12:00 AM,0,Infastructure/DevOps,"Establish and document the team's Git workflow. The strategy should use a main branch (production-ready only), a dev branch (integration), and feature/* branches for individual stories. Configure branch protection on main so that direct pushes are blocked and at least one PR review is required to merge.
+
+Acceptance criteria
+
+* {color:#ffffff}Branch protection is enabled on main: direct pushes are blocked, 1 PR approval required{color}
+* {color:#ffffff}A CONTRIBUTING.md or section in README documents the branch naming convention (e.g. feature/form700-parser){color}
+* {color:#ffffff}All 8 team members have successfully cloned the repo and can push a feature branch without errors{color}
+* {color:#ffffff}A test PR from dev → main is created and correctly blocked until approved{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,,,{},,,0|i0007j:,SH Sprint 2,16/Mar/26 12:00 AM,3.0,,,10037,SH-5,190 Epic,Done,23/Mar/26 11:11 PM
+Set up CI/CD with GitHub Actions,SH-38,10105,Story,Done,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,Done,Rhys Honaker,712020:10af4543-7f78-410a-85fa-e6031feeb606,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 6:19 PM,28/Mar/26 9:39 PM,,23/Mar/26 2:12 AM,,0,Infastructure/DevOps,"Configure two GitHub Actions workflows: one that runs the test suite automatically on every pull request to dev or main, and one that triggers a deployment to Render whenever code is merged to main. Both workflows should be visible in the GitHub Actions tab.
+
+Acceptance criteria
+
+* A PR to dev triggers the test workflow, it runs npm test and reports pass/fail in the PR checks
+* Workflow YAML files are committed under .github/workflows/
+* A failed test in a PR correctly blocks the merge (status check required)",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,Jumana Abdullah,712020:6cc974a9-19c2-458d-bc16-0d3729095c89,{},,,0|i0007r:,SH Sprint 2,,3.0,,,10037,SH-5,190 Epic,Done,23/Mar/26 2:12 AM
+Politician deduplication logic,SH-23,10090,Story,Done,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,Done,Karla Ramirez,712020:bdeaa289-0dda-4434-9e5b-2ceb5735860e,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:44 PM,29/Apr/26 7:24 PM,,29/Apr/26 7:24 PM,26/Apr/26 12:00 AM,0,Data_Ingestion,"Build a utility function that, given a filer name from a Form 700 XML, finds the matching politician record in the DB. Use fuzzy string matching to handle minor name variations (e.g. ""John A. Smith"" vs ""John Smith""). If no match is found above a confidence threshold, create a new politician record and flag it for manual review.
+
+Acceptance criteria
+
+* findOrCreatePolitician(filerName, district) is a named exported async function
+* Function queries the politicians table and scores candidates using fuzzy string match via fuse.js, with Gemini 1.5 Flash confirming ambiguous 0.7–0.85 scores
+* If a match is found with similarity >= 85%, the existing politician's ID is returned
+* If no match exceeds 85%, a new politician record is inserted with needs_review = true
+* Function is tested with: exact match, minor variation match, completely new name, and empty string input
+* All new politicians flagged needs_review = true are visible in a DB query for manual admin review",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,,,{},,,0|i0007v:,SH Sprint 4,,5.0,,,10037,SH-5,190 Epic,Done,29/Apr/26 7:24 PM
+Data sources status page (admin),SH-24,10091,Story,Done,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,Done,Ishkaram Gill,712020:401af73f-83b2-4880-a782-5d9917dceefb,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:44 PM,23/Apr/26 4:28 PM,,23/Apr/26 4:28 PM,26/Apr/26 12:00 AM,0,Frontend/UI,"Build an admin-only page at /admin/sources that gives the team (and eventually the client) visibility into the state of all data ingestion sources. For each configured city or data source, show the last successful sync time, total agenda items in the DB, and any recent errors.
+
+Acceptance criteria
+
+* Page is only accessible when logged in as admin — redirects to /admin/login if not authenticated
+* Lists all configured data sources (each Legistar city and each Apify city) as rows
+* Each row shows: city name, source type (Legistar / Apify / PDF), last sync time, total agenda items count, last error message if any
+* A ""Sync now"" button per row triggers an on-demand ingestion job and shows a loading state
+* ""Sync now"" returns a success or error toast when the job completes
+* Page auto-refreshes data every 30 seconds while open",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,,,{},,,0|i00087:,SH Sprint 4,,5.0,,,10037,SH-5,190 Epic,Done,23/Apr/26 4:28 PM
+Integration test — Legistar API round trip,SH-26,10093,Story,Done,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,Done,Jumana Abdullah,712020:6cc974a9-19c2-458d-bc16-0d3729095c89,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:44 PM,25/Apr/26 9:34 PM,,25/Apr/26 9:34 PM,26/Apr/26 12:00 AM,0,Testing/QA,"Write an integration test that exercises the complete Legistar ingestion flow against a real CA city endpoint. The test should call the Legistar API, pass results through the ingestion job, verify records appear in the DB, and confirm no duplicates are created on a second run.
+
+Acceptance criteria
+
+* Test calls the real Legistar API for a configured CA city (not a mock) and receives a valid response
+* After running the ingestion job, agenda_items rows exist in the DB for that city
+* Running the job a second time does not create duplicate rows (upsert behavior confirmed)
+* Test cleans up inserted rows after completion so it can be run repeatedly
+* Test is in /tests/integration/ and runs with npm run test:integration",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,,,{},,,0|i0008f:,SH Sprint 4,,3.0,,,10037,SH-5,190 Epic,Done,25/Apr/26 9:34 PM
