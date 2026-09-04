@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 360" role="img" aria-label="FAIR system architecture">
+  <defs>
+    <style>
+      .node { fill: #f1f5f9; stroke: #1e3a5f; stroke-width: 2; rx: 8; }
+      .ext { fill: #fff7ed; stroke: #c2410c; stroke-width: 2; rx: 8; }
+      .lbl { font: 12px system-ui, sans-serif; fill: #0f2744; font-weight: 600; }
+      .sub { font: 10px system-ui, sans-serif; fill: #64748b; }
+      .arrow { stroke: #64748b; stroke-width: 1.5; fill: none; marker-end: url(#a); }
+    </style>
+    <marker id="a" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#64748b"/>
+    </marker>
+  </defs>
+  <rect width="800" height="360" fill="#ffffff"/>
+  <text x="24" y="32" font-family="system-ui" font-size="16" font-weight="700" fill="#0f2744">FAIR  data flow</text>
+
+  <rect class="ext" x="24" y="60" width="120" height="56"/><text x="44" y="88" class="lbl">Legistar</text><text x="36" y="104" class="sub">REST API</text>
+  <rect class="ext" x="24" y="140" width="120" height="56"/><text x="48" y="168" class="lbl">Apify</text><text x="28" y="184" class="sub">PDF agendas</text>
+  <rect class="ext" x="24" y="220" width="120" height="56"/><text x="32" y="248" class="lbl">FPPC admin</text><text x="28" y="264" class="sub">Form 700 XLSX</text>
+
+  <rect class="node" x="200" y="120" width="140" height="80"/><text x="228" y="152" class="lbl">Express API</text><text x="212" y="168" class="sub">server/ · Railway</text>
+  <rect class="node" x="400" y="120" width="140" height="80"/><text x="420" y="152" class="lbl">Supabase</text><text x="408" y="168" class="sub">Postgres + Storage</text>
+  <rect class="node" x="600" y="60" width="160" height="64"/><text x="628" y="92" class="lbl">React UI</text><text x="612" y="108" class="sub">client/ · Vercel</text>
+
+  <rect class="node" x="200" y="260" width="140" height="64"/><text x="218" y="292" class="lbl">node-cron</text><text x="208" y="308" class="sub">nightly sync</text>
+  <rect class="ext" x="400" y="260" width="140" height="64"/><text x="428" y="292" class="lbl">Gemini</text><text x="408" y="308" class="sub">fuzzy 0.70.85</text>
+  <rect class="ext" x="600" y="260" width="160" height="64"/><text x="636" y="292" class="lbl">Resend</text><text x="612" y="308" class="sub">admin digests</text>
+
+  <path class="arrow" d="M144 88 L200 140"/>
+  <path class="arrow" d="M144 168 L200 155"/>
+  <path class="arrow" d="M144 248 L200 175"/>
+  <path class="arrow" d="M340 160 L400 160"/>
+  <path class="arrow" d="M540 100 L600 92"/>
+  <path class="arrow" d="M270 200 L270 260"/>
+  <path class="arrow" d="M340 292 L400 292"/>
+  <path class="arrow" d="M540 292 L600 292"/>
+</svg>

@@ -1,15 +1,26 @@
-﻿{
-  "name": "senior-project-server",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
+{
+  "name": "fair-server",
+  "version": "1.0.0",
+  "description": "FAIR backend server",
   "main": "src/index.js",
+  "type": "module",
   "scripts": {
-    "test": "node test_pdfParser.js"
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "run:apify-agendas": "node src/jobs/runApifyAgendaScrape.js",
+    "test:storage": "node scripts/test-form700-storage.mjs"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.103.0",
-    "dotenv": "^16.3.1",
-    "pdf-parse": "^1.1.1"
+    "@supabase/supabase-js": "^2.49.1",
+    "apify-client": "^2.23.0",
+    "bullmq": "^5.76.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "ioredis": "^5.10.1",
+    "node-cron": "^4.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0"
   }
 }
