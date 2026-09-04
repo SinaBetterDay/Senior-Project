@@ -1,4 +1,4 @@
-import dotenv from 'dotenv';
+﻿import dotenv from 'dotenv';
 import pdfParse from 'pdf-parse';
 import { createClient } from '@supabase/supabase-js';
 
