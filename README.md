@@ -179,7 +179,7 @@ npm test    # wire in package.json when Jest/Vitest runner is added
 - [ ] Unit tests for Apify normalization and PDF text extraction
 - [ ] Integration tests for fuse.js + Gemini resolution boundaries (0.7 / 0.85)
 - [ ] E2E smoke tests for public browse and admin upload (Playwright or Cypress)
-- [ ] Coverage threshold in [`.github/workflows/ci-cdyml.yml.txt`](.github/workflows/ci-cdyml.yml.txt)
+- [ ] Coverage threshold in [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
 
 ---
 
@@ -195,7 +195,7 @@ npm test    # wire in package.json when Jest/Vitest runner is added
 | `server/` | **Railway** | CI deploy job on `main` |
 | Database | **Supabase** | Migrations via Prisma / SQL in `supabase/migrations/` |
 
-Reference workflow (draft): [`.github/workflows/ci-cdyml.yml.txt`](.github/workflows/ci-cdyml.yml.txt) — Postgres service, `prisma migrate deploy`, Railway `railway up`.
+CI workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — Postgres service, `prisma generate` + `prisma migrate deploy`, `npm test`, Railway `railway up` on push to `main`.
 
 ### _To complete in CSC 191_
 
