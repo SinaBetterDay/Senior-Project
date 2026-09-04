@@ -8,11 +8,17 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "run:apify-agendas": "node src/jobs/runApifyAgendaScrape.js",
+    "test": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
     "test:storage": "node scripts/test-form700-storage.mjs",
-    "test": "vitest run"
+    "smoke:legistar-api": "node scripts/legistar-api-smoke.mjs"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@prisma/client": "^6.19.0",
     "@supabase/supabase-js": "^2.49.1",
     "apify-client": "^2.23.0",
     "cors": "^2.8.5",
