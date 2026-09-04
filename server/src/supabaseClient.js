@@ -1,6 +1,2 @@
-import { createClient } from "@supabase/supabase-js";
-
-export const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+// Legacy import path — the single server Supabase client now lives in lib/supabase.js.
+export { supabase, getSupabase, default } from './lib/supabase.js';
