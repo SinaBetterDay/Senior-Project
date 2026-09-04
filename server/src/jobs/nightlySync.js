@@ -23,6 +23,7 @@ function parseDate(value) {
 function toItemInsertRow({ source, meeting, meetingId, item }) {
   return {
     legistar_item_id: String(item.EventItemId ?? item.event_item_id ?? ''),
+    source_type: 'legistar',
     legistar_event_id: String(meetingId),
     legistar_matter_id: item.MatterId != null ? String(item.MatterId) : null,
     city_name: getCityName(source),
@@ -77,9 +78,11 @@ async function loadAgendaItemColumns(sql) {
   return new Set(results.map((row) => row.column_name));
 }
 
+// Schema v2 (DataSource model) uses `source_type`; `type` is kept only for
+// pre-v2 databases.
 function resolveTypeColumn(dataSourceColumns) {
-  if (dataSourceColumns.has('type')) return 'type';
   if (dataSourceColumns.has('source_type')) return 'source_type';
+  if (dataSourceColumns.has('type')) return 'type';
   return null;
 }
 
@@ -126,8 +129,11 @@ async function insertAgendaItemRows(sql, rows, agendaItemColumns) {
     throw new Error('agenda_items table must include legistar_item_id column for upsert');
   }
 
+  // Column names match the snake_case @map()s on the AgendaItem model in
+  // server/prisma/schema.prisma (table: agenda_items).
   const insertColumns = [
     'legistar_item_id',
+    'source_type',
     'legistar_event_id',
     'legistar_matter_id',
     'city_name',

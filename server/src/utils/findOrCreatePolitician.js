@@ -7,6 +7,13 @@ const AUTO_MATCH_THRESHOLD = 0.85;
 const GEMINI_MIN_THRESHOLD = 0.7;
 
 
+// Office title used when a filer is auto-created and the cover page did not
+// provide one. Admins fix this up via the needs_review queue.
+const DEFAULT_OFFICE_TITLE = "Unknown";
+
+// Postgres unique_violation — used to retry slug generation on collision.
+const PG_UNIQUE_VIOLATION = "23505";
+
 // normalize name of politician: lowercase, remove periods, trim spaces
 function normalizeName(name) {
   return String(name || "")
@@ -17,11 +24,21 @@ function normalizeName(name) {
     .trim();
 }
 
-// query supabase politicians table
+// URL-safe slug for the politicians.slug unique column
+export function slugifyName(name) {
+  const slug = normalizeName(name)
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "politician";
+}
+
+// query supabase politicians table (schema v2: politicians.full_name)
 async function getPoliticianCandidates(district) {
   let query = supabase
     .from("politicians")
-    .select("id, name, district");
+    .select("id, full_name, district");
 
   if (district) {
     query = query.eq("district", district);
@@ -35,7 +52,7 @@ async function getPoliticianCandidates(district) {
 
   return data.map((politician) => ({
     ...politician,
-    normalized_name: normalizeName(politician.name),
+    normalized_name: normalizeName(politician.full_name),
   }));
 }
 
@@ -92,7 +109,7 @@ Use true if they are likely the same person.
 Use false if they are likely different people.
 
 Filer name: "${filerName}"
-Existing politician name: "${candidate.name}"
+Existing politician name: "${candidate.full_name}"
 Filer district: "${district || "unknown"}"
 Existing politician district: "${candidate.district || "unknown"}"
 
@@ -120,8 +137,43 @@ Rules:
   }
 }
 
+// insert a new politicians row; retries once with a random slug suffix if the
+// name-derived slug is already taken
+async function createPolitician(cleanedName, district, officeTitle) {
+  const baseSlug = slugifyName(cleanedName);
+  const attempts = [baseSlug, `${baseSlug}-${Math.random().toString(36).slice(2, 8)}`];
+
+  let lastError = null;
+
+  for (const slug of attempts) {
+    const { data, error } = await supabase
+      .from("politicians")
+      .insert({
+        full_name: cleanedName,
+        slug,
+        office_title: officeTitle,
+        district,
+        needs_review: true,
+      })
+      .select("id")
+      .single();
+
+    if (!error) {
+      return data.id;
+    }
+
+    lastError = error;
+    if (error.code !== PG_UNIQUE_VIOLATION) {
+      break;
+    }
+  }
+
+  throw new Error(`Error creating politician: ${lastError?.message ?? "unknown error"}`);
+}
+
 // main function
-export async function findOrCreatePolitician(filerName, district) {
+// options.officeTitle: office title from the Form 700 cover page (optional)
+export async function findOrCreatePolitician(filerName, district, options = {}) {
   const cleanedName = String(filerName || "").trim();
 
   if (!cleanedName) {
@@ -153,21 +205,8 @@ export async function findOrCreatePolitician(filerName, district) {
     }
   }
 
-  // if there is no match
-  const { data, error } = await supabase
-    .from("politicians")
-    .insert({
-      name: cleanedName,
-      district,
-      needs_review: true,
-    })
-    .select("id")
-    .single();
-
-  if (error) {
-    throw new Error(`Error creating politician: ${error.message}`);
-  }
-
-  return data.id;
+  // if there is no match, create a new row flagged for admin review
+  const officeTitle = String(options.officeTitle || "").trim() || DEFAULT_OFFICE_TITLE;
+  return createPolitician(cleanedName, district ?? null, officeTitle);
 }
 
