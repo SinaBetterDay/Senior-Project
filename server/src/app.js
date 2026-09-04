@@ -13,6 +13,7 @@ import politiciansRouter from './routes/politicians.js';
 import searchRouter from './routes/search.js';
 import adminReportsRouter from './routes/admin/reports.js';
 import adminSourcesRouter from './routes/admin/sources.js';
+import adminUploadRouter from './routes/admin/upload.js';
 
 export const app = express();
 
@@ -39,15 +40,8 @@ app.use('/api/search', searchRouter);
 app.use('/api/admin/sources', requireAdmin, adminSourcesRouter);
 app.use('/api/admin/reports', requireAdmin, adminReportsRouter);
 
-// TODO(G5): swap in the real router from ./routes/admin/upload.js once the
-// Form 700 ingestion repair lands (it currently has syntax errors / broken
-// import paths and must not be imported here yet). multer (10 MB) is applied
-// inside that router, not globally.
-const uploadPlaceholder = express.Router();
-uploadPlaceholder.all('*', (_req, res) => {
-  res.status(501).json({ error: 'not implemented' });
-});
-app.use('/api/admin/upload', requireAdmin, uploadPlaceholder);
+// multer (10 MB memory storage) is applied inside the upload router, not globally.
+app.use('/api/admin/upload', requireAdmin, adminUploadRouter);
 
 // --- 404 -------------------------------------------------------------------
 app.use((_req, res) => {
