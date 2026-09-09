@@ -1,4 +1,15 @@
-// Sprint 2 v1 — seven core tables for disclosures, agendas, votes, and conflict tracking.
+// Schema v2 (Sprint 5) — core disclosure/agenda tables plus Form 700 schedule
+// tables, data_sources and sync_logs.
+//
+// Naming convention (see supabase/CONTEXT.md):
+//   * Prisma models and fields stay camelCase.
+//   * Every model is mapped to a snake_case table with @@map and every
+//     multi-word field is mapped to a snake_case column with @map, so raw SQL
+//     (server/src/jobs/nightlySync.js, Supabase JS queries) and Prisma hit the
+//     exact same physical tables/columns.
+//   * Primary keys are `uuid` columns with a DB-side default
+//     (gen_random_uuid()) rather than Prisma's client-side uuid(), so raw SQL
+//     and Supabase JS inserts that omit `id` still succeed.
 
 generator client {
   provider = "prisma-client-js"
@@ -10,96 +21,312 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+// ---------------------------------------------------------------------------
+// Core v1 tables (now mapped to snake_case)
+// ---------------------------------------------------------------------------
+
 model Jurisdiction {
-  id               String   @id @default(uuid())
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name             String
   type             String
-  legistarClientId String?  @unique
-  createdAt        DateTime @default(now())
+  legistarClientId String?  @unique @map("legistar_client_id")
+  createdAt        DateTime @default(now()) @map("created_at")
 
   politicians Politician[]
   meetings    Meeting[]
+  dataSources DataSource[]
+
+  @@map("jurisdictions")
 }
 
 model Politician {
-  id              String   @id @default(uuid())
-  slug            String   @unique
-  fullName        String
-  officeTitle     String
-  party           String?
-  district        String?
-  photoUrl        String?
-  externalId      String?
-  jurisdictionId  String?
-  jurisdiction    Jurisdiction? @relation(fields: [jurisdictionId], references: [id], onDelete: SetNull)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug           String        @unique
+  fullName       String        @map("full_name")
+  officeTitle    String        @map("office_title")
+  party          String?
+  district       String?
+  photoUrl       String?       @map("photo_url")
+  externalId     String?       @map("external_id")
+  jurisdictionId String?       @map("jurisdiction_id") @db.Uuid
+  jurisdiction   Jurisdiction? @relation(fields: [jurisdictionId], references: [id], onDelete: SetNull)
+  /// Set when a Form 700 filer could not be confidently matched to an existing
+  /// politician and a new row was auto-created (see findOrCreatePolitician.js).
+  needsReview    Boolean       @default(false) @map("needs_review")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @default(now()) @updatedAt @map("updated_at")
 
-  votes         VoteRecord[]
-  filings       Form700Filing[]
-  conflictFlags ConflictFlag[]
+  votes                VoteRecord[]
+  filings              Form700Filing[]
+  conflictFlags        ConflictFlag[]
+  conflicts            Conflict[]
+  scheduleAInvestments ScheduleAInvestment[]
+  scheduleBRealEstate  ScheduleBRealEstate[]
+  scheduleCdeIncome    ScheduleCdeIncome[]
+  scheduleA2Positions  ScheduleA2BusinessPosition[]
+
+  @@map("politicians")
 }
 
 model Meeting {
-  id               String   @id @default(uuid())
-  jurisdictionId   String
-  jurisdiction     Jurisdiction @relation(fields: [jurisdictionId], references: [id], onDelete: Cascade)
-  bodyName         String
-  meetingDate      DateTime
-  agendaUrl        String?
-  legistarEventId  Int?
-  createdAt        DateTime @default(now())
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  jurisdictionId  String       @map("jurisdiction_id") @db.Uuid
+  jurisdiction    Jurisdiction @relation(fields: [jurisdictionId], references: [id], onDelete: Cascade)
+  bodyName        String       @map("body_name")
+  meetingDate     DateTime     @map("meeting_date")
+  agendaUrl       String?      @map("agenda_url")
+  legistarEventId Int?         @map("legistar_event_id")
+  createdAt       DateTime     @default(now()) @map("created_at")
 
   agendaItems AgendaItem[]
+
+  @@map("meetings")
 }
 
+/// Agenda items arrive from three ingestion paths (Legistar REST, Apify, PDF).
+/// Raw ingestion inserts rows without a Meeting, so `meetingId` and `title` are
+/// nullable and the denormalised Legistar/PDF columns live directly on the row.
 model AgendaItem {
-  id          String   @id @default(uuid())
-  meetingId   String
-  meeting     Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  title       String
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  meetingId   String?   @map("meeting_id") @db.Uuid
+  meeting     Meeting?  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  title       String?
   description String?
-  itemNumber  String?
-  createdAt   DateTime @default(now())
+  itemNumber  String?   @map("item_number")
+  /// legistar | apify | pdf
+  sourceType  String    @default("legistar") @map("source_type")
+  /// Raw agenda text for a single item (PDF / Apify sources).
+  itemText    String?   @map("item_text")
+  /// Free-form city identifier used by the PDF/Apify pipelines before a
+  /// Jurisdiction row exists.
+  cityId      String?   @map("city_id")
+  cityName    String?   @map("city_name")
+  bodyName    String?   @map("body_name")
+  meetingDate DateTime? @map("meeting_date")
 
-  votes           VoteRecord[]
-  conflictFlags   ConflictFlag[]
+  // Legistar REST fields written by server/src/jobs/nightlySync.js
+  legistarItemId      String?  @unique @map("legistar_item_id")
+  legistarEventId     String?  @map("legistar_event_id")
+  legistarMatterId    String?  @map("legistar_matter_id")
+  agendaNumber        String?  @map("agenda_number")
+  eventItemPassedFlag Boolean? @map("event_item_passed_flag")
+  legistarItemPayload Json?    @map("legistar_item_payload")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  votes         VoteRecord[]
+  conflictFlags ConflictFlag[]
+  conflicts     Conflict[]
+
+  @@index([meetingDate])
+  @@index([cityName, meetingDate])
+  @@map("agenda_items")
 }
 
 model VoteRecord {
-  id           String   @id @default(uuid())
-  agendaItemId String
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  agendaItemId String     @map("agenda_item_id") @db.Uuid
   agendaItem   AgendaItem @relation(fields: [agendaItemId], references: [id], onDelete: Cascade)
-  politicianId String
+  politicianId String     @map("politician_id") @db.Uuid
   politician   Politician @relation(fields: [politicianId], references: [id], onDelete: Cascade)
   vote         String
-  voteDate     DateTime?
-  createdAt    DateTime @default(now())
+  voteDate     DateTime?  @map("vote_date")
+  createdAt    DateTime   @default(now()) @map("created_at")
 
   @@unique([agendaItemId, politicianId])
+  @@map("vote_records")
 }
 
 model Form700Filing {
-  id            String    @id @default(uuid())
-  politicianId  String
-  politician    Politician @relation(fields: [politicianId], references: [id], onDelete: Cascade)
-  filingYear    Int
-  storagePath   String?
-  filedAt       DateTime?
-  createdAt     DateTime  @default(now())
+  id               String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  politicianId     String     @map("politician_id") @db.Uuid
+  politician       Politician @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+  filingYear       Int        @map("filing_year")
+  /// Filer name exactly as printed on the cover page (before entity resolution).
+  filerName        String?    @map("filer_name")
+  /// Original upload filename (e.g. "smith-2025.xlsx").
+  originalFilename String?    @map("original_filename")
+  /// Path inside the private `form700-uploads` Supabase Storage bucket.
+  archivedPath     String?    @map("archived_path")
+  /// Legacy v1 column kept for backwards compatibility; prefer archivedPath.
+  storagePath      String?    @map("storage_path")
+  filedAt          DateTime?  @map("filed_at")
+  createdAt        DateTime   @default(now()) @map("created_at")
+
+  scheduleAInvestments ScheduleAInvestment[]
+  scheduleBRealEstate  ScheduleBRealEstate[]
+  scheduleCdeIncome    ScheduleCdeIncome[]
+  scheduleA2Positions  ScheduleA2BusinessPosition[]
 
   @@unique([politicianId, filingYear])
+  @@map("form700_filings")
 }
 
 model ConflictFlag {
-  id           String    @id @default(uuid())
-  politicianId String
-  politician   Politician @relation(fields: [politicianId], references: [id], onDelete: Cascade)
-  agendaItemId String?
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  politicianId String      @map("politician_id") @db.Uuid
+  politician   Politician  @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+  agendaItemId String?     @map("agenda_item_id") @db.Uuid
   agendaItem   AgendaItem? @relation(fields: [agendaItemId], references: [id], onDelete: SetNull)
   severity     String
-  status       String    @default("OPEN")
+  status       String      @default("OPEN")
   summary      String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @default(now()) @updatedAt @map("updated_at")
+
+  @@map("conflict_flags")
+}
+
+/// Form 700 vs agenda matches written by the conflict engine (SH-29 / SH-32).
+/// Unique on politician + item + type + source_key so two holdings can both
+/// flag the same item, while a second run of the same match inserts 0 rows.
+model Conflict {
+  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  politicianId  String     @map("politician_id") @db.Uuid
+  politician    Politician @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+  agendaItemId  String     @map("agenda_item_id") @db.Uuid
+  agendaItem    AgendaItem @relation(fields: [agendaItemId], references: [id], onDelete: Cascade)
+  conflictType  String     @map("conflict_type")
+  severity      String
+  ruleReference String     @map("rule_reference")
+  entityName    String?    @map("entity_name")
+  sourceKey     String     @map("source_key")
+  detectedAt    DateTime   @default(now()) @map("detected_at")
+
+  @@unique([politicianId, agendaItemId, conflictType, sourceKey], map: "conflicts_identity_key")
+  @@index([politicianId])
+  @@index([agendaItemId])
+  @@index([detectedAt])
+  @@map("conflicts")
+}
+
+// ---------------------------------------------------------------------------
+// Form 700 schedule tables (v2)
+// ---------------------------------------------------------------------------
+
+/// Schedule A — Investments (stocks, bonds, business interests).
+model ScheduleAInvestment {
+  id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  filingId           String        @map("filing_id") @db.Uuid
+  filing             Form700Filing @relation(fields: [filingId], references: [id], onDelete: Cascade)
+  politicianId       String?       @map("politician_id") @db.Uuid
+  politician         Politician?   @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+  entityName         String        @map("entity_name")
+  fairMarketValue    String?       @map("fair_market_value")
+  natureOfInvestment String?       @map("nature_of_investment")
+  createdAt          DateTime      @default(now()) @map("created_at")
+
+  @@index([filingId])
+  @@index([politicianId])
+  @@map("schedule_a_investments")
+}
+
+/// Schedule B — Interests in real property.
+model ScheduleBRealEstate {
+  id                  String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  filingId            String        @map("filing_id") @db.Uuid
+  filing              Form700Filing @relation(fields: [filingId], references: [id], onDelete: Cascade)
+  politicianId        String?       @map("politician_id") @db.Uuid
+  politician          Politician?   @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+  propertyDescription String?       @map("property_description")
+  city                String?
+  county              String?
+  fairMarketValue     String?       @map("fair_market_value")
+  natureOfInterest    String?       @map("nature_of_interest")
+  createdAt           DateTime      @default(now()) @map("created_at")
+
+  @@index([filingId])
+  @@index([politicianId])
+  @@map("schedule_b_realestate")
+}
+
+/// Schedules C (income), D (gifts) and E (travel payments) share one shape;
+/// `scheduleType` is "C" | "D" | "E".
+model ScheduleCdeIncome {
+  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  filingId     String        @map("filing_id") @db.Uuid
+  filing       Form700Filing @relation(fields: [filingId], references: [id], onDelete: Cascade)
+  politicianId String?       @map("politician_id") @db.Uuid
+  politician   Politician?   @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+  scheduleType String        @map("schedule_type")
+  sourceName   String?       @map("source_name")
+  amount       String?
+  createdAt    DateTime      @default(now()) @map("created_at")
+
+  @@index([filingId])
+  @@index([politicianId])
+  @@index([scheduleType])
+  @@map("schedule_cde_income")
+}
+
+/// Schedule A-2 — Investments, income and assets of business entities/trusts
+/// in which the filer holds a business position.
+model ScheduleA2BusinessPosition {
+  id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  filingId           String        @map("filing_id") @db.Uuid
+  filing             Form700Filing @relation(fields: [filingId], references: [id], onDelete: Cascade)
+  politicianId       String?       @map("politician_id") @db.Uuid
+  politician         Politician?   @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+  entityName         String        @map("entity_name")
+  businessPosition   String?       @map("business_position")
+  fairMarketValue    String?       @map("fair_market_value")
+  natureOfInvestment String?       @map("nature_of_investment")
+  grossIncomeRange   String?       @map("gross_income_range")
+  createdAt          DateTime      @default(now()) @map("created_at")
+
+  @@index([filingId])
+  @@index([politicianId])
+  @@map("schedule_a2_business_positions")
+}
+
+// ---------------------------------------------------------------------------
+// Agenda ingestion configuration + audit (v2)
+// ---------------------------------------------------------------------------
+
+/// One row per city agenda feed. `sourceType` is legistar | apify | pdf.
+/// nightlySync.js reads this table with raw SQL (city_name, source_type,
+/// enabled, legistar_base_url, legistar_client_id).
+model DataSource {
+  id               String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cityName         String        @map("city_name")
+  sourceType       String        @map("source_type")
+  legistarBaseUrl  String?       @map("legistar_base_url")
+  legistarClientId String?       @map("legistar_client_id")
+  apifyActorId     String?       @map("apify_actor_id")
+  startUrl         String?       @map("start_url")
+  enabled          Boolean       @default(true)
+  lastSyncedAt     DateTime?     @map("last_synced_at")
+  lastError        String?       @map("last_error")
+  jurisdictionId   String?       @map("jurisdiction_id") @db.Uuid
+  jurisdiction     Jurisdiction? @relation(fields: [jurisdictionId], references: [id], onDelete: SetNull)
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @default(now()) @updatedAt @map("updated_at")
+
+  syncLogs SyncLog[]
+
+  @@index([sourceType, enabled])
+  @@map("data_sources")
+}
+
+/// One row per sync run (nightly cron or manual "Sync now"). Feeds the weekly
+/// admin digest and the admin sources page.
+model SyncLog {
+  id                String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dataSourceId      String?     @map("data_source_id") @db.Uuid
+  dataSource        DataSource? @relation(fields: [dataSourceId], references: [id], onDelete: SetNull)
+  /// legistar | apify | pdf | form700
+  sourceType        String?     @map("source_type")
+  /// running | success | failed
+  status            String      @default("running")
+  startedAt         DateTime    @default(now()) @map("started_at")
+  completedAt       DateTime?   @map("completed_at")
+  itemsFound        Int         @default(0) @map("items_found")
+  itemsInserted     Int         @default(0) @map("items_inserted")
+  itemsSkipped      Int         @default(0) @map("items_skipped")
+  conflictsDetected Int         @default(0) @map("conflicts_detected")
+  errors            Json?
+
+  @@index([dataSourceId, startedAt])
+  @@index([startedAt])
+  @@map("sync_logs")
 }
