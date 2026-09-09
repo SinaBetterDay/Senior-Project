@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { detectRealEstate } from "../../src/detection/detectRealEstate.js";
-import { CONFLICT_TYPES, SEVERITY } from "../../src/config/conflictRules.js";
+import {
+  CONFLICT_TYPES,
+  SEVERITY,
+  calculateSeverity,
+} from "../../src/config/conflictRules.js";
 
 const politicianId = "pol-b-1";
 const agendaItemId = "item-b-1";
@@ -13,6 +17,21 @@ const property = {
 };
 
 describe("detectRealEstate", () => {
+  it("assigns severity at each dollar threshold", () => {
+    expect(
+      calculateSeverity({ conflictType: CONFLICT_TYPES.INCOME, amount: "$999" }),
+    ).toBe(SEVERITY.LOW);
+    expect(
+      calculateSeverity({ conflictType: CONFLICT_TYPES.INCOME, amount: "$1,000" }),
+    ).toBe(SEVERITY.MEDIUM);
+    expect(
+      calculateSeverity({ conflictType: CONFLICT_TYPES.INCOME, amount: "$9,999" }),
+    ).toBe(SEVERITY.MEDIUM);
+    expect(
+      calculateSeverity({ conflictType: CONFLICT_TYPES.INCOME, amount: "$10,000" }),
+    ).toBe(SEVERITY.HIGH);
+  });
+
   it("flags when the street appears in the agenda item", async () => {
     const item = {
       id: agendaItemId,
@@ -45,6 +64,22 @@ describe("detectRealEstate", () => {
 
     const flags = await detectRealEstate([property], item);
     expect(flags).toHaveLength(0);
+  });
+
+  it("uses fair market value for property severity", async () => {
+    const item = {
+      id: agendaItemId,
+      title: "Public hearing for a variance at 123 Main Street",
+      description: "Consider a setback variance for the parcel.",
+      cityName: "Santa Rosa",
+    };
+
+    const flags = await detectRealEstate(
+      [{ ...property, fair_market_value: "$25,000" }],
+      item,
+    );
+
+    expect(flags[0].severity).toBe(SEVERITY.HIGH);
   });
 
   it("does not flag an unrelated city", async () => {
