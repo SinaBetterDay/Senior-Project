@@ -291,7 +291,7 @@ _Update JIRA keys (`FAIR-*`) and calendar dates when your PO locks the 191 sprin
 | **Sponsor** | California FPPC |
 | **Repository** | `Senior-Project` (Sac State senior design) |
 
-_License and contribution guidelines — to be added in CSC 191._
+_License and contribution guidelines — to be added in CSC 191_
 
 ---
 
