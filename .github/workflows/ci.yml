@@ -78,4 +78,11 @@ jobs:
         working-directory: server
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: railway up --detach
+          # Service name or ID (Railway → service → Settings). Required when the project has multiple services.
+          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
+        run: |
+          if [ -z "$RAILWAY_SERVICE_ID" ]; then
+            echo "::error::Add repository secret RAILWAY_SERVICE_ID (Railway service name or ID)."
+            exit 1
+          fi
+          railway up --detach --service "$RAILWAY_SERVICE_ID"
