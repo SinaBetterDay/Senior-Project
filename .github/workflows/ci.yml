@@ -72,30 +72,21 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Railway CLI
-        run: npm install -g @railway/cli
+        # Pin: newer CLI releases have broken CI auth with project tokens.
+        run: npm install -g @railway/cli@5.2.0
 
       - name: Deploy to Railway
         working-directory: server
         env:
+          # Project token only (Project → Settings → Tokens) for this environment.
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          # From the Railway service URL:
-          # /project/<PROJECT>/service/<SERVICE>?environmentId=<ENVIRONMENT>
-          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
           RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
-          RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID }}
         run: |
           set -euo pipefail
           if [ -z "${RAILWAY_SERVICE_ID:-}" ]; then
             echo "::error::Add repository secret RAILWAY_SERVICE_ID (UUID after /service/ in the Railway URL)."
             exit 1
           fi
-          # Project tokens are scoped to one environment — recreate the token for
-          # the same environment you pass here if upload returns 404.
-          ARGS=(up --detach --ci --verbose --service "$RAILWAY_SERVICE_ID")
-          if [ -n "${RAILWAY_PROJECT_ID:-}" ]; then
-            ARGS+=(--project "$RAILWAY_PROJECT_ID")
-          fi
-          if [ -n "${RAILWAY_ENVIRONMENT_ID:-}" ]; then
-            ARGS+=(--environment "$RAILWAY_ENVIRONMENT_ID")
-          fi
-          railway "${ARGS[@]}"
+          # Project tokens already encode project + environment. Passing
+          # --environment as a UUID often causes upload 404.
+          railway up --detach --service "$RAILWAY_SERVICE_ID" --verbose

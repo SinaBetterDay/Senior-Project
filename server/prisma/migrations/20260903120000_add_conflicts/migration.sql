@@ -1,10 +1,10 @@
 -- CreateTable
 CREATE TABLE "conflicts" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
-    "politician_id" UUID NOT NULL,
-    "agenda_item_id" UUID NOT NULL,
+    "politician_id" UUID NOT NULL references politicians(id),
+    "agenda_item_id" UUID NOT NULL references agenda_items(id),
     "conflict_type" TEXT NOT NULL,
-    "severity" TEXT NOT NULL,
+    "severity" TEXT NOT NULL check (severity IN ('low', 'medium', 'high', 'critical'),
     "rule_reference" TEXT NOT NULL,
     "entity_name" TEXT,
     "source_key" TEXT NOT NULL,
