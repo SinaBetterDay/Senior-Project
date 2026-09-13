@@ -1,18 +1,28 @@
 -- CreateTable
 CREATE TABLE "conflicts" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
-    "politician_id" UUID NOT NULL references politicians(id),
-    "agenda_item_id" UUID NOT NULL references agenda_items(id),
+    "politician_id" UUID NOT NULL,
+    "agenda_item_id" UUID NOT NULL,
     "conflict_type" TEXT NOT NULL,
-    "severity" TEXT NOT NULL check (severity IN ('low', 'medium', 'high', 'critical'),
+    "severity" TEXT NOT NULL,
     "rule_reference" TEXT NOT NULL,
     "entity_name" TEXT,
     "source_key" TEXT NOT NULL,
     "detected_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
+    
     CONSTRAINT "conflicts_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "conflicts_severity_check"
+        CHECK ("severity" IN ('low', 'meduim', 'high', 'critical'))
 );
-
+-- The unique index prevent being recorded more than once
+CREATE UNIQUE INDEX "conflicts_identity_key"
+ON "conflicts"(
+    "politician_id",
+    "agenda_tiem_id",
+    "conflict_type",
+    "source_key"
+    );
 -- CreateIndex
 CREATE UNIQUE INDEX "conflicts_identity_key" ON "conflicts"("politician_id", "agenda_item_id", "conflict_type", "source_key");
 
