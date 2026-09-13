@@ -4,7 +4,8 @@ CREATE TABLE "conflicts" (
     "politician_id" UUID NOT NULL,
     "agenda_item_id" UUID NOT NULL,
     "conflict_type" TEXT NOT NULL,
-    "severity" TEXT NOT NULL,
+    "severity" TEXT NOT NULL
+       CHECK ("severity" IN ('low', 'medium', 'high')),
     "rule_reference" TEXT NOT NULL,
     "entity_name" TEXT,
     "source_key" TEXT NOT NULL,
@@ -12,8 +13,7 @@ CREATE TABLE "conflicts" (
 
     
     CONSTRAINT "conflicts_pkey" PRIMARY KEY ("id")
-    CONSTRAINT "conflicts_severity_check"
-        CHECK ("severity" IN ('low', 'medium', 'high'))
+        
 );
 -- The unique index prevent being recorded more than once
 CREATE UNIQUE INDEX "conflicts_identity_key"
