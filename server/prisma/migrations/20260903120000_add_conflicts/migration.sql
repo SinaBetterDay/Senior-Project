@@ -9,11 +9,10 @@ CREATE TABLE "conflicts" (
     "entity_name" TEXT,
     "source_key" TEXT NOT NULL,
     "detected_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
     
-    CONSTRAINT "conflicts_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "conflicts_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "conflicts_severity_check"
-        CHECK ("severity" IN ('low', 'medium', 'high'))
+        CHECK ("severity" IN ('LOW', 'MEDIUM', 'HIGH'))
 );
 -- The unique index prevent being recorded more than once
 CREATE UNIQUE INDEX "conflicts_identity_key"
