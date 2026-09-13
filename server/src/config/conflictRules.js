@@ -3,7 +3,7 @@
  *
  * Cite: Cal. Gov. Code §87100 (no participation in a decision in which the
  * official has a financial interest) and §87103 (what counts as a financial
- * interest: real property, sources of income, gifts, business positions).
+ * interest: investments, real property, sources of income, gifts, business positions).
  *
  * This file is the single source of thresholds, fuse/Gemini bands, land-use
  * keywords, and the severity stub. Detectors import from here rather than
@@ -21,6 +21,7 @@ export const MATCH_BANDS = {
 };
 
 export const AMOUNT_THRESHOLDS = {
+  INVESTMENT: 2000,
   INCOME: 500,
   GIFT: 50,
   TRAVEL: 50,
@@ -38,6 +39,7 @@ export const SEVERITY = {
 };
 
 export const CONFLICT_TYPES = {
+  INVESTMENT: "INVESTMENT",
   REAL_ESTATE: "REAL_ESTATE",
   INCOME: "INCOME",
   GIFT: "GIFT",
@@ -46,6 +48,7 @@ export const CONFLICT_TYPES = {
 };
 
 export const RULE_REFERENCE = {
+  INVESTMENT: "Cal. Gov. Code §87100, §87103(a)",
   REAL_ESTATE: "Cal. Gov. Code §87100, §87103(b)",
   INCOME: "Cal. Gov. Code §87100, §87103(c)",
   GIFT: "Cal. Gov. Code §87100, §87103(e)",
@@ -95,6 +98,14 @@ export function meetsAmountThreshold(scheduleType, amount) {
   const dollars = parseAmount(amount);
   if (dollars == null) return true;
   return dollars >= threshold;
+}
+
+export function meetsInvestmentThreshold(amount) {
+  const dollars = parseAmount(amount);
+
+  if (dollars == null) return true; // If the value cannot be parsed, let the detector continue.
+
+  return dollars >= AMOUNT_THRESHOLDS.INVESTMENT;
 }
 
 export function hasLandUseKeyword(text) {
