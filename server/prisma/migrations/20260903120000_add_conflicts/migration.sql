@@ -13,7 +13,7 @@ CREATE TABLE "conflicts" (
     
     CONSTRAINT "conflicts_pkey" PRIMARY KEY ("id")
     CONSTRAINT "conflicts_severity_check"
-        CHECK ("severity" IN ('low', 'meduim', 'high', 'critical'))
+        CHECK ("severity" IN ('low', 'meduim', 'high'))
 );
 -- The unique index prevent being recorded more than once
 CREATE UNIQUE INDEX "conflicts_identity_key"
