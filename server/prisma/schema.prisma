@@ -93,13 +93,17 @@ model Form700Filing {
 
 model ConflictFlag {
   id           String    @id @default(uuid())
-  politicianId String
+  politicianId String    @map("politician_id")
   politician   Politician @relation(fields: [politicianId], references: [id], onDelete: Cascade)
-  agendaItemId String?
-  agendaItem   AgendaItem? @relation(fields: [agendaItemId], references: [id], onDelete: SetNull)
+  agendaItemId String    @map("agenda_item_id")
+  agendaItem   AgendaItem @relation(fields: [agendaItemId], references: [id], onDelete: Cascade)
+  conflictType String    @map("conflict_type")
   severity     String
-  status       String    @default("OPEN")
-  summary      String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  ruleReference String   @map("rule_reference")
+  detectedAt   DateTime  @default(now()) @map("detected_at")
+
+  @@map("conflicts")
+  @@index([politicianId])
+  @@index([agendaItemId])
+  @@index([detectedAt(sort: Desc)])
 }
