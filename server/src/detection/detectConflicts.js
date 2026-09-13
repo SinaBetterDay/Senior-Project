@@ -1,5 +1,6 @@
 import { detectBusinessPositions } from "./detectBusinessPositions.js";
 import { detectIncomeGiftsTravel } from "./detectIncomeGiftsTravel.js";
+import { detectInvestments } from "./investments.js";
 import { detectRealEstate } from "./detectRealEstate.js";
 import { persistConflicts } from "./persistConflicts.js";
 
@@ -11,6 +12,17 @@ async function getPrisma(override) {
 
 function politicianIdFrom(row) {
   return row?.politicianId ?? row?.politician_id ?? row?.filing?.politicianId ?? null;
+}
+
+function asScheduleA(row) {
+  return {
+    politician_id: politicianIdFrom(row),
+    entity_name: row.entityName ?? row.entity_name ?? null,
+    fair_market_value:
+      row.fairMarketValue ?? row.fair_market_value ?? null,
+    nature_of_investment:
+      row.natureOfInvestment ?? row.nature_of_investment ?? null,
+  };
 }
 
 function asScheduleB(row) {
@@ -57,12 +69,14 @@ export async function detectConflictsForAgendaItems(ids, deps = {}) {
     where: { id: { in: ids } },
   });
 
-  const [properties, sources, positions] = await Promise.all([
+  const [investments, properties, sources, positions] = await Promise.all([
+    loadRows(client.scheduleAInvestment),
     loadRows(client.scheduleBRealEstate),
     loadRows(client.scheduleCdeIncome),
     loadRows(client.scheduleA2BusinessPosition),
   ]);
 
+  const scheduleA = (investments || []).map(asScheduleA);
   const scheduleB = (properties || []).map(asScheduleB);
   const scheduleCde = (sources || []).map(asScheduleCde);
   const scheduleA2 = (positions || []).map(asScheduleA2);
@@ -73,10 +87,16 @@ export async function detectConflictsForAgendaItems(ids, deps = {}) {
 
   const candidates = [];
   for (const item of items) {
+    candidates.push(
+      ...(await detectInvestments(scheduleA, item, matchDeps)),
+    );
+
     candidates.push(...(await detectRealEstate(scheduleB, item)));
+    
     candidates.push(
       ...(await detectIncomeGiftsTravel(scheduleCde, item, matchDeps)),
     );
+    
     candidates.push(
       ...(await detectBusinessPositions(scheduleA2, item, matchDeps)),
     );
