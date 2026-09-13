@@ -23,8 +23,6 @@ ON "conflicts"(
     "conflict_type",
     "source_key"
     );
--- CreateIndex
-CREATE UNIQUE INDEX "conflicts_identity_key" ON "conflicts"("politician_id", "agenda_item_id", "conflict_type", "source_key");
 
 -- CreateIndex
 CREATE INDEX "conflicts_politician_id_idx" ON "conflicts"("politician_id");
