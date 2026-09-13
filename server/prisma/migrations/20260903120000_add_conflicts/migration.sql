@@ -8,7 +8,7 @@ CREATE TABLE "conflicts" (
     "rule_reference" TEXT NOT NULL,
     "entity_name" TEXT,
     "source_key" TEXT NOT NULL,
-    "detected_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "detected_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     
     CONSTRAINT "conflicts_pkey" PRIMARY KEY ("id")
@@ -25,13 +25,16 @@ ON "conflicts"(
     );
 
 -- CreateIndex
-CREATE INDEX "conflicts_politician_id_idx" ON "conflicts"("politician_id");
+CREATE INDEX "conflicts_politician_id_idx" 
+    ON "conflicts"("politician_id");
 
 -- CreateIndex
-CREATE INDEX "conflicts_agenda_item_id_idx" ON "conflicts"("agenda_item_id");
+CREATE INDEX "conflicts_agenda_item_id_idx" 
+    ON "conflicts"("agenda_item_id");
 
 -- CreateIndex
-CREATE INDEX "conflicts_detected_at_idx" ON "conflicts"("detected_at");
+CREATE INDEX "conflicts_detected_at_idx"
+    ON "conflicts"("detected_at");
 
 -- AddForeignKey
 ALTER TABLE "conflicts" ADD CONSTRAINT "conflicts_politician_id_fkey" FOREIGN KEY ("politician_id") REFERENCES "politicians"("id") ON DELETE CASCADE ON UPDATE CASCADE;
