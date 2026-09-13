@@ -1,17 +1,43 @@
-create extension if not exists "uuid-ossp";
+-- CreateTable
+CREATE TABLE "conflicts" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "politician_id" UUID NOT NULL,
+    "agenda_item_id" UUID NOT NULL,
+    "conflict_type" TEXT NOT NULL,
+    "severity" TEXT NOT NULL,
+    "rule_reference" TEXT NOT NULL,
+    "entity_name" TEXT,
+    "source_key" TEXT NOT NULL,
+    "detected_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-CREATE TABLE conflicts (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  politician_id uuid NOT NULL
-    REFERENCES politicians(id),
-  agenda_item_id uuid NOT NULL
-    REFERENCES agenda_items(id),
-  conflict_type text NOT NULL,
-  severity text NOT NULL CHECK (severity IN ('low', 'medium', 'high', 'critical')),
-  rule_reference text NOT NULL,
-  detected_at timestamptz NOT NULL DEFAULT now()
+    
+    CONSTRAINT "conflicts_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "conflicts_severity_check"
+        CHECK ("severity" IN ('low', 'medium', 'high'))
 );
+-- The unique index prevent being recorded more than once
+CREATE UNIQUE INDEX "conflicts_identity_key"
+ON "conflicts"(
+    "politician_id",
+    "agenda_item_id",
+    "conflict_type",
+    "source_key"
+    );
 
-CREATE INDEX conflicts_politician_id_idx ON conflicts (politician_id);
-CREATE INDEX conflicts_agenda_item_id_idx ON conflicts (agenda_item_id);
-CREATE INDEX conflicts_detected_at_idx ON conflicts (detected_at DESC);
+-- CreateIndex
+CREATE INDEX "conflicts_politician_id_idx" 
+    ON "conflicts"("politician_id");
+
+-- CreateIndex
+CREATE INDEX "conflicts_agenda_item_id_idx" 
+    ON "conflicts"("agenda_item_id");
+
+-- CreateIndex
+CREATE INDEX "conflicts_detected_at_idx"
+    ON "conflicts"("detected_at");
+
+-- AddForeignKey
+ALTER TABLE "conflicts" ADD CONSTRAINT "conflicts_politician_id_fkey" FOREIGN KEY ("politician_id") REFERENCES "politicians"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "conflicts" ADD CONSTRAINT "conflicts_agenda_item_id_fkey" FOREIGN KEY ("agenda_item_id") REFERENCES "agenda_items"("id") ON DELETE CASCADE ON UPDATE CASCADE;
