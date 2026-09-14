@@ -1,5 +1,5 @@
 import { syncQueue } from "../queues/syncQueue.js";
-import { runNightlyLegistarSync } from "../ingestion/legistarSync.js";
+import { runLegistarIngestion } from "../ingestion/legistar.js";
 
 export function startSyncWorker() {
   syncQueue.process("run-sync", async (job) => {
@@ -8,11 +8,11 @@ export function startSyncWorker() {
   console.log(`[Sync Worker] Payload:`, job.data);
 
   try {
-    const result = await runNightlyLegistarSync();
+    const result = await runLegistarIngestion();
 
-    const end = new Date().toISOString();
-    console.log(`[Sync Worker] Completed job id=${job.id} at ${end}`);
-    console.log(`[Sync Worker] Result:`, result);
+      const end = new Date().toISOString();
+      console.log(`[Sync Worker] Completed job id=${job.id} at ${end}`);
+      console.log(`[Sync Worker] Result:`, result);
 
     return {
       ...result,
