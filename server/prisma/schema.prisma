@@ -163,170 +163,18 @@ model Form700Filing {
 }
 
 model ConflictFlag {
-  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  politicianId String      @map("politician_id") @db.Uuid
-  politician   Politician  @relation(fields: [politicianId], references: [id], onDelete: Cascade)
-  agendaItemId String?     @map("agenda_item_id") @db.Uuid
-  agendaItem   AgendaItem? @relation(fields: [agendaItemId], references: [id], onDelete: SetNull)
+  id           String    @id @default(uuid())
+  politicianId String    @map("politician_id")
+  politician   Politician @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+  agendaItemId String    @map("agenda_item_id")
+  agendaItem   AgendaItem @relation(fields: [agendaItemId], references: [id], onDelete: Cascade)
+  conflictType String    @map("conflict_type")
   severity     String
-  status       String      @default("OPEN")
-  summary      String?
-  createdAt    DateTime    @default(now()) @map("created_at")
-  updatedAt    DateTime    @default(now()) @updatedAt @map("updated_at")
+  ruleReference String   @map("rule_reference")
+  detectedAt   DateTime  @default(now()) @map("detected_at")
 
-  @@map("conflict_flags")
-}
-
-/// Form 700 vs agenda matches written by the conflict engine (SH-29 / SH-32).
-/// Unique on politician + item + type + source_key so two holdings can both
-/// flag the same item, while a second run of the same match inserts 0 rows.
-model Conflict {
-  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  politicianId  String     @map("politician_id") @db.Uuid
-  politician    Politician @relation(fields: [politicianId], references: [id], onDelete: Cascade)
-  agendaItemId  String     @map("agenda_item_id") @db.Uuid
-  agendaItem    AgendaItem @relation(fields: [agendaItemId], references: [id], onDelete: Cascade)
-  conflictType  String     @map("conflict_type")
-  severity      String
-  ruleReference String     @map("rule_reference")
-  entityName    String?    @map("entity_name")
-  sourceKey     String     @map("source_key")
-  detectedAt    DateTime   @default(now()) @map("detected_at")
-
-  @@unique([politicianId, agendaItemId, conflictType, sourceKey], map: "conflicts_identity_key")
+  @@map("conflicts")
   @@index([politicianId])
   @@index([agendaItemId])
-  @@index([detectedAt])
-  @@map("conflicts")
-}
-
-// ---------------------------------------------------------------------------
-// Form 700 schedule tables (v2)
-// ---------------------------------------------------------------------------
-
-/// Schedule A — Investments (stocks, bonds, business interests).
-model ScheduleAInvestment {
-  id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  filingId           String        @map("filing_id") @db.Uuid
-  filing             Form700Filing @relation(fields: [filingId], references: [id], onDelete: Cascade)
-  politicianId       String?       @map("politician_id") @db.Uuid
-  politician         Politician?   @relation(fields: [politicianId], references: [id], onDelete: Cascade)
-  entityName         String        @map("entity_name")
-  fairMarketValue    String?       @map("fair_market_value")
-  natureOfInvestment String?       @map("nature_of_investment")
-  createdAt          DateTime      @default(now()) @map("created_at")
-
-  @@index([filingId])
-  @@index([politicianId])
-  @@map("schedule_a_investments")
-}
-
-/// Schedule B — Interests in real property.
-model ScheduleBRealEstate {
-  id                  String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  filingId            String        @map("filing_id") @db.Uuid
-  filing              Form700Filing @relation(fields: [filingId], references: [id], onDelete: Cascade)
-  politicianId        String?       @map("politician_id") @db.Uuid
-  politician          Politician?   @relation(fields: [politicianId], references: [id], onDelete: Cascade)
-  propertyDescription String?       @map("property_description")
-  city                String?
-  county              String?
-  fairMarketValue     String?       @map("fair_market_value")
-  natureOfInterest    String?       @map("nature_of_interest")
-  createdAt           DateTime      @default(now()) @map("created_at")
-
-  @@index([filingId])
-  @@index([politicianId])
-  @@map("schedule_b_realestate")
-}
-
-/// Schedules C (income), D (gifts) and E (travel payments) share one shape;
-/// `scheduleType` is "C" | "D" | "E".
-model ScheduleCdeIncome {
-  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  filingId     String        @map("filing_id") @db.Uuid
-  filing       Form700Filing @relation(fields: [filingId], references: [id], onDelete: Cascade)
-  politicianId String?       @map("politician_id") @db.Uuid
-  politician   Politician?   @relation(fields: [politicianId], references: [id], onDelete: Cascade)
-  scheduleType String        @map("schedule_type")
-  sourceName   String?       @map("source_name")
-  amount       String?
-  createdAt    DateTime      @default(now()) @map("created_at")
-
-  @@index([filingId])
-  @@index([politicianId])
-  @@index([scheduleType])
-  @@map("schedule_cde_income")
-}
-
-/// Schedule A-2 — Investments, income and assets of business entities/trusts
-/// in which the filer holds a business position.
-model ScheduleA2BusinessPosition {
-  id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  filingId           String        @map("filing_id") @db.Uuid
-  filing             Form700Filing @relation(fields: [filingId], references: [id], onDelete: Cascade)
-  politicianId       String?       @map("politician_id") @db.Uuid
-  politician         Politician?   @relation(fields: [politicianId], references: [id], onDelete: Cascade)
-  entityName         String        @map("entity_name")
-  businessPosition   String?       @map("business_position")
-  fairMarketValue    String?       @map("fair_market_value")
-  natureOfInvestment String?       @map("nature_of_investment")
-  grossIncomeRange   String?       @map("gross_income_range")
-  createdAt          DateTime      @default(now()) @map("created_at")
-
-  @@index([filingId])
-  @@index([politicianId])
-  @@map("schedule_a2_business_positions")
-}
-
-// ---------------------------------------------------------------------------
-// Agenda ingestion configuration + audit (v2)
-// ---------------------------------------------------------------------------
-
-/// One row per city agenda feed. `sourceType` is legistar | apify | pdf.
-/// nightlySync.js reads this table with raw SQL (city_name, source_type,
-/// enabled, legistar_base_url, legistar_client_id).
-model DataSource {
-  id               String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cityName         String        @map("city_name")
-  sourceType       String        @map("source_type")
-  legistarBaseUrl  String?       @map("legistar_base_url")
-  legistarClientId String?       @map("legistar_client_id")
-  apifyActorId     String?       @map("apify_actor_id")
-  startUrl         String?       @map("start_url")
-  enabled          Boolean       @default(true)
-  lastSyncedAt     DateTime?     @map("last_synced_at")
-  lastError        String?       @map("last_error")
-  jurisdictionId   String?       @map("jurisdiction_id") @db.Uuid
-  jurisdiction     Jurisdiction? @relation(fields: [jurisdictionId], references: [id], onDelete: SetNull)
-  createdAt        DateTime      @default(now()) @map("created_at")
-  updatedAt        DateTime      @default(now()) @updatedAt @map("updated_at")
-
-  syncLogs SyncLog[]
-
-  @@index([sourceType, enabled])
-  @@map("data_sources")
-}
-
-/// One row per sync run (nightly cron or manual "Sync now"). Feeds the weekly
-/// admin digest and the admin sources page.
-model SyncLog {
-  id                String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  dataSourceId      String?     @map("data_source_id") @db.Uuid
-  dataSource        DataSource? @relation(fields: [dataSourceId], references: [id], onDelete: SetNull)
-  /// legistar | apify | pdf | form700
-  sourceType        String?     @map("source_type")
-  /// running | success | failed
-  status            String      @default("running")
-  startedAt         DateTime    @default(now()) @map("started_at")
-  completedAt       DateTime?   @map("completed_at")
-  itemsFound        Int         @default(0) @map("items_found")
-  itemsInserted     Int         @default(0) @map("items_inserted")
-  itemsSkipped      Int         @default(0) @map("items_skipped")
-  conflictsDetected Int         @default(0) @map("conflicts_detected")
-  errors            Json?
-
-  @@index([dataSourceId, startedAt])
-  @@index([startedAt])
-  @@map("sync_logs")
+  @@index([detectedAt(sort: Desc)])
 }
