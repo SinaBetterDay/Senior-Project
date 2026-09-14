@@ -1,6 +1,8 @@
 import { startNightlySyncCron } from "./nightlySyncCron.js";
+import { startSyncWorker } from "../workers/syncWorker.js";
 export function scheduleCronJobs() {
   startNightlySyncCron();
+  startSyncWorker();
 }
 
 import cron from 'node-cron';
