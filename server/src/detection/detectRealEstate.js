@@ -99,6 +99,11 @@ export async function detectRealEstate(properties, agendaItem) {
       "property_description",
       "propertyDescription",
     );
+    const fairMarketValue = pickField(
+      row,
+      "fair_market_value",
+      "fairMarketValue",
+    );
     let matchedLabel = null;
 
     if (preciseLocationInText(propertyDescription, itemText)) {
@@ -115,6 +120,7 @@ export async function detectRealEstate(properties, agendaItem) {
       conflict_type: CONFLICT_TYPES.REAL_ESTATE,
       severity: calculateSeverity({
         conflictType: CONFLICT_TYPES.REAL_ESTATE,
+        amount: fairMarketValue,
       }),
       rule_reference: RULE_REFERENCE.REAL_ESTATE,
       entity_name: propertyDescription || matchedLabel,
