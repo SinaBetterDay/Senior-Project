@@ -15,6 +15,9 @@ import adminReportsRouter from './routes/admin/reports.js';
 import adminSourcesRouter from './routes/admin/sources.js';
 import adminUploadRouter from './routes/admin/upload.js';
 
+// AC4: manual nightly sync route
+import adminSyncRouter from './routes/adminSync.js';
+
 export const app = express();
 
 // --- global middleware -----------------------------------------------------
@@ -39,6 +42,9 @@ app.use('/api/search', searchRouter);
 // --- admin API (Supabase JWT required) --------------------------------------
 app.use('/api/admin/sources', requireAdmin, adminSourcesRouter);
 app.use('/api/admin/reports', requireAdmin, adminReportsRouter);
+
+// AC4: manual nightly sync trigger
+app.use('/api/admin/sync', requireAdmin, adminSyncRouter);
 
 // multer (10 MB memory storage) is applied inside the upload router, not globally.
 app.use('/api/admin/upload', requireAdmin, adminUploadRouter);
