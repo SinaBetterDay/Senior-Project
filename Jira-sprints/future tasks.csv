@@ -1,0 +1,267 @@
+Summary,Issue key,Issue id,Issue Type,Status,Project key,Project name,Project type,Project lead,Project lead id,Project description,Priority,Resolution,Assignee,Assignee Id,Reporter,Reporter Id,Creator,Creator Id,Created,Updated,Last Viewed,Resolved,Due date,Votes,Labels,Description,Environment,Watchers,Watchers Id,Original estimate,Remaining Estimate,Time Spent,Work Ratio,Σ Original Estimate,Σ Remaining Estimate,Σ Time Spent,Security Level,Custom field (Development),Custom field (Goals),Custom field (Issue color),Custom field (Rank),Sprint,Custom field (Start date),Custom field (Story point estimate),Custom field (Team),Custom field (Vulnerability),Parent,Parent key,Parent summary,Status Category,Status Category Changed
+Define conflict rule set with client,SH-27,10094,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,Leah Smith,712020:5dc48e9b-597d-4549-a106-60758bfac1de,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:56 PM,02/Sep/26 10:38 PM,02/Sep/26 10:42 PM,,,0,Conflict_Detection,"Research and document the exact conflict-of-interest rules from California Government Code Section 87100 and FPPC regulations. Define what constitutes a reportable financial conflict for each Form 700 schedule type against a meeting agenda item. Present to the client and get written approval before any detection engine code is written.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}A document /docs/conflict_rules.md defines a conflict rule for each schedule type: A (investments), B (real estate), C/D/E (income, gifts, travel), and A-2 (business positions){color}
+* {color:#ffffff}Each rule specifies the triggering condition, the dollar threshold if applicable, and the FPPC code section it references{color}
+* {color:#ffffff}Client has reviewed and provided written approval — email confirmation is sufficient{color}
+* {color:#ffffff}Document is committed to the repo and linked from the main README{color}
+* {color:#ffffff}Every team member has read the document before detection engine coding begins{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i0005b:,SH Sprint 5,,3.0,,,10957,SH-175,191 Epic,To Do,14/Mar/26 5:56 PM
+Conflict engine — investment vs agenda item,SH-28,10095,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,Ishkaram Gill,712020:401af73f-83b2-4880-a782-5d9917dceefb,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:56 PM,02/Sep/26 10:39 PM,02/Sep/26 10:44 PM,,,0,Conflict_Detection,"Query: for each agenda item, find politicians with Form 700 stock holdings in any named entity. Flag matches.",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i0005j:,SH Sprint 5,,8.0,,,10957,SH-175,191 Epic,To Do,14/Mar/26 5:56 PM
+"Conflict engine — real estate, income, gifts & business positions",SH-29,10096,Story,In Progress,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:56 PM,02/Sep/26 10:39 PM,02/Sep/26 10:42 PM,,,0,Conflict_Detection,Flag cases where a politician owns property in the geographic area directly affected by an agenda item.,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i0005r:,SH Sprint 5,,8.0,,,10957,SH-175,191 Epic,In Progress,02/Sep/26 10:01 PM
+Conflict severity scoring,SH-31,10098,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,Rhys Honaker,712020:10af4543-7f78-410a-85fa-e6031feeb606,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:56 PM,02/Sep/26 10:39 PM,,,,0,Conflict_Detection,Assign LOW/MEDIUM/HIGH severity scores to flagged conflicts based on dollar thresholds defined in FPPC rules.,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i00067:,SH Sprint 5,,5.0,,,10957,SH-175,191 Epic,To Do,14/Mar/26 5:56 PM
+Conflicts table in DB,SH-32,10099,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,Mao Vang,712020:bf67980c-d12e-4cb4-9dd5-6ddf84957db8,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:56 PM,02/Sep/26 10:39 PM,02/Sep/26 10:37 PM,,,0,Conflict_Detection,"Design and migrate conflicts table: politician_id, agenda_item_id, conflict_type, severity, rule_reference, detected_at.",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i0006f:,SH Sprint 5,,3.0,,,10957,SH-175,191 Epic,To Do,14/Mar/26 5:56 PM
+Nightly re-sync scheduler,SH-33,10100,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,Luis Meza,712020:668fa5ad-9613-441a-a76c-2097d6335234,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:56 PM,02/Sep/26 10:40 PM,,,,0,Data_Ingestion,"Build the automated nightly pipeline that keeps the system current without admin intervention. Fetches new agendas from all active sources and runs conflict detection only on newly ingested items.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}Cron job runs nightly at a configurable time via SYNC_CRON_SCHEDULE env variable (default 2:00am){color}
+* {color:#ffffff}Iterates all active data sources and runs an ingestion job per city sequentially via node-cron (no BullMQ/Redis){color}
+* {color:#ffffff}After each city ingests, conflict detection is run for newly inserted agenda items only{color}
+* {color:#ffffff}Run is logged to sync_logs table: started_at, completed_at, sources_synced, items_ingested, conflicts_detected, errors{color}
+* {color:#ffffff}One failing city does not stop the rest of the run{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i0006n:,SH Sprint 5,,5.0,,,10957,SH-175,191 Epic,To Do,14/Mar/26 5:56 PM
+Conflict engine unit tests,SH-34,10101,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,Karla Ramirez,712020:bdeaa289-0dda-4434-9e5b-2ceb5735860e,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,14/Mar/26 5:56 PM,02/Sep/26 10:40 PM,,,,0,Testing/QA,"Write a comprehensive unit test suite for the entire conflict detection engine using mock DB fixtures — no live data or external API calls required.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}Test fixtures in /tests/fixtures/ cover: politician with each schedule type populated, agenda items with matching entities, agenda items with no matches{color}
+* {color:#ffffff}Each detector tested for: correct match flagged, non-match not flagged, below-threshold not flagged, duplicate run produces no new rows{color}
+* {color:#ffffff}calculateSeverity tested at all threshold boundaries for all conflict types{color}
+* {color:#ffffff}npm test runs the full suite in under 30 seconds with all tests passing{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i0006v:,SH Sprint 5,,5.0,,,10957,SH-175,191 Epic,To Do,14/Mar/26 5:56 PM
+Entity name normalization utility,SH-43,10174,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,Jumana Abdullah,712020:6cc974a9-19c2-458d-bc16-0d3729095c89,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:10 AM,02/Sep/26 10:40 PM,,,,0,Parsing/Processing,"Build the shared utility that normalizes entity names before any comparison. Critical for reducing false negatives from minor naming variations like ""Acme Corp."", ""ACME CORPORATION"", and ""Acme Corp"" all referring to the same entity.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}normalizeEntityName(name) is a named exported function in /utils/entityNorm.js — lowercases, trims, removes punctuation, strips common suffixes (LLC, Inc, Corp, Corporation, Ltd, Co, Company){color}
+* {color:#ffffff}areSameEntity(nameA, nameB) returns true if normalized names match exactly or Levenshtein similarity is >= 88%{color}
+* {color:#ffffff}Unit tests cover: exact match, suffix variation, casing variation, punctuation variation, clearly different names, and empty string{color}
+* {color:#ffffff}All detection functions updated to use areSameEntity instead of direct string comparison{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i0008n:,SH Sprint 5,,5.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:10 AM
+Public conflicts dashboard,SH-44,10175,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:14 AM,02/Sep/26 10:41 PM,,,,0,Frontend/UI,"Build the primary public-facing page. Displays all detected conflicts in a sortable, filterable table. No login required. This is what most users will land on.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}Route /conflicts renders the dashboard — fully accessible without login{color}
+* {color:#ffffff}Columns: politician name, city, conflict type, severity (color-coded), agenda item summary, detected date{color}
+* {color:#ffffff}Filters: city dropdown, conflict type multi-select, severity multi-select, date range picker — all update table without full page reload{color}
+* {color:#ffffff}Table sortable by severity and detected date via column header click{color}
+* {color:#ffffff}Paginates at 25 rows per page with next/previous controls{color}
+* {color:#ffffff}Empty state message shown when filters return zero results{color}
+* {color:#ffffff}Page loads and displays first results in under 2 seconds{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i0008v:,SH Sprint 6,,8.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:14 AM
+Conflict detail page,SH-45,10176,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:14 AM,02/Sep/26 10:41 PM,,,,0,Frontend/UI,"Build the detail page for a single conflict. Accessible from the dashboard. Must be shareable by URL so reviewers can link directly to specific conflicts.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}Route /conflicts/:id renders the detail — no login required{color}
+* {color:#ffffff}Shows: politician name and district, conflict type and severity badge, the Form 700 schedule entry that triggered the flag (entity name, dollar value, schedule type), full agenda item text, meeting date and city, and FPPC rule reference{color}
+* {color:#ffffff}Severity explained in plain English (e.g. ""HIGH — investment value exceeds $10,000 FPPC threshold""){color}
+* {color:#ffffff}Back link returns to dashboard preserving previous filter state{color}
+* {color:#ffffff}Invalid conflict ID shows a 404 message — not a blank or broken page{color}
+* {color:#ffffff}URL opens correctly in an incognito tab without login{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i00093:,SH Sprint 6,,5.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:14 AM
+Politician profile & agenda item pages,SH-46,10177,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:14 AM,02/Sep/26 10:41 PM,,,,0,Frontend/UI,"Build two supporting public detail pages: the politician profile showing all filings and conflicts, and the agenda item page showing full text and linked conflicts.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}/politicians lists all politicians with name, district, and conflict count — no login required{color}
+* {color:#ffffff}/politicians/:id shows full name, district, all Form 700 filings on record, and all flagged conflicts with links to conflict detail{color}
+* {color:#ffffff}/agenda/:id shows full agenda item text, meeting date, city, source type, and all linked conflicts{color}
+* {color:#ffffff}Both pages show a clear empty state when no conflicts exist{color}
+* {color:#ffffff}Both pages accessible without login{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i0009b:,SH Sprint 6,,5.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:14 AM
+Global search & landing page,SH-47,10178,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:14 AM,02/Sep/26 10:41 PM,,,,0,Frontend/UI,"Build a global search bar accessible from the site header on every page, and a simple public landing page explaining FAIR to new visitors.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}Search bar visible in header on all pages — debounced at 300ms{color}
+* {color:#ffffff}Results grouped by type: Politicians, Agenda Items, Conflicts — each with a preview and link{color}
+* {color:#ffffff}Backed by Postgres tsvector full-text index — not a LIKE query{color}
+* {color:#ffffff}Returns results in under 500ms on the seeded dataset{color}
+* {color:#ffffff}/about renders a plain-English explanation of FAIR, Form 700, conflict detection, and FPPC contact info — no login required{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i0009j:,SH Sprint 6,,5.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:14 AM
+Admin panel — Form 700 upload & politician management,SH-48,10179,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:14 AM,02/Sep/26 10:41 PM,,,,0,Frontend/UI,"Build two admin pages: the Form 700 XLSX upload page connecting to the Sprint 3 endpoint, and the politician management interface for maintaining the master list.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}/admin/upload — drag-and-drop XLSX upload, progress bar, ingestion result summary, error messages for invalid files. Admin login required.{color}
+* {color:#ffffff}Only .xlsx files accepted — other file types rejected with inline error before upload{color}
+* {color:#ffffff}On success: shows filing ID, politician matched, schedule record counts, and link to politician profile{color}
+* {color:#ffffff}/admin/politicians — lists all politicians with edit/delete actions{color}
+* {color:#ffffff}Add/edit form validates name, district, and city before submitting{color}
+* {color:#ffffff}Delete blocked if politician has linked filings — shows explanation message{color}
+* {color:#ffffff}All admin routes return 401 for unauthenticated requests{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i0009r:,SH Sprint 6,,5.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:14 AM
+Admin panel — manage data sources,SH-49,10180,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:14 AM,02/Sep/26 10:41 PM,,,,0,Frontend/UI,"Build the admin interface for managing ingestion sources. The client must be able to add a new city for monitoring entirely through the UI — no developer involvement after handoff.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}/admin/sources lists all configured sources with type, last sync time, item count, and status{color}
+* {color:#ffffff}Add source form accepts: city name, source type (Legistar or Apify), and either a Legistar base URL or Apify actor ID{color}
+* {color:#ffffff}Legistar URL validated on save — backend makes a test API call and returns an error if it fails{color}
+* {color:#ffffff}Apify actor ID validated against client Apify account via API{color}
+* {color:#ffffff}Edit and delete actions available per source — deleting preserves existing ingested records{color}
+* {color:#ffffff}""Sync now"" button triggers on-demand ingestion and shows real-time status feedback{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i0009z:,SH Sprint 6,,8.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:14 AM
+Manual conflict review & override,SH-50,10181,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:14 AM,02/Sep/26 10:41 PM,,,,0,Frontend/UI,"Build the review workflow so admins can annotate flagged conflicts. All review actions are logged for audit purposes.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}Conflict detail page shows a review panel when admin is logged in{color}
+* {color:#ffffff}Admin can set status to: Pending, Confirmed conflict, or Not applicable{color}
+* {color:#ffffff}Status change requires a mandatory note (minimum 10 characters){color}
+* {color:#ffffff}All changes written to a conflict_reviews audit table: admin user, timestamp, old status, new status, note{color}
+* {color:#ffffff}Reviewed status and note visible on the public conflict detail page{color}
+* {color:#ffffff}Not applicable conflicts visually distinguished on dashboard but not hidden{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i000a7:,SH Sprint 6,,3.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:14 AM
+End-to-end test: upload → detect → display,SH-51,10182,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:14 AM,02/Sep/26 10:41 PM,,,,0,Testing/QA,"Automated test exercising the complete system flow with real sample data — the closest thing to a guarantee all pieces work together.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}Test uploads a known Form 700 XLSX via POST /api/admin/upload/form700{color}
+* {color:#ffffff}Test triggers agenda ingestion for a matching agenda item known to contain a conflicting entity{color}
+* {color:#ffffff}Conflict detection runs and a conflict row is inserted with expected type and severity{color}
+* {color:#ffffff}GET /conflicts returns the new conflict in the response{color}
+* {color:#ffffff}GET /conflicts/:id returns complete and correct detail page data{color}
+* {color:#ffffff}Test cleans up all inserted records after completion and runs in under 60 seconds{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i000af:,SH Sprint 6,,5.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:14 AM
+Conflict false-positive tuning,SH-52,10183,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:18 AM,02/Sep/26 10:41 PM,,,,0,Conflict_Detection,"Run the detection engine against real Form 700 and agenda data, review results with the client, and identify false positives. Adjust matching thresholds and add name exclusion rules for entities that should never trigger a conflict (e.g. ""City of Los Angeles"").
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}Review session held with client examining at least 30 flagged conflicts from real data{color}
+* {color:#ffffff}All false positives documented in /docs/false_positive_log.md with root cause analysis{color}
+* {color:#ffffff}Entity exclusion list implemented in /config/conflictRules.js — configurable array of names that never trigger conflicts{color}
+* {color:#ffffff}Matching similarity threshold adjusted based on findings, documented with before/after false positive rate{color}
+* {color:#ffffff}Client has signed off on tuned results in writing{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i000an:,SH Sprint 7,,8.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:18 AM
+Export conflicts to CSV,SH-53,10184,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:19 AM,02/Sep/26 10:41 PM,,,,0,Frontend/UI,"Add a CSV export button to the public conflicts dashboard. Export respects all active filters so the client downloads exactly the subset they are viewing.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}""Download CSV"" button visible on the conflicts dashboard{color}
+* {color:#ffffff}Downloads fair-conflicts-YYYY-MM-DD.csv{color}
+* {color:#ffffff}CSV includes all table columns plus full agenda item text and FPPC rule reference{color}
+* {color:#ffffff}Export respects all currently active filters{color}
+* {color:#ffffff}Generated server-side at GET /api/conflicts/export?[filter params] and streamed as a file download{color}
+* {color:#ffffff}Works correctly for 0, 1, and 500+ row result sets{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i000av:,SH Sprint 7,,3.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:19 AM
+Export conflict report to PDF,SH-54,10185,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:19 AM,02/Sep/26 10:41 PM,,,,0,Frontend/UI,"Build a PDF report generator for conflict summaries. The client needs to produce professional reports to share with FPPC stakeholders. Use Puppeteer (free, open source) to render an HTML template to PDF server-side.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}/admin/reports page allows scoping a report by: politician, city, date range, or all conflicts{color}
+* {color:#ffffff}Generated PDF includes: FAIR header with generation date, filter summary, conflict table with all key fields, and totals by severity{color}
+* {color:#ffffff}PDF generated server-side via Puppeteer rendering an HTML template{color}
+* {color:#ffffff}Download triggers a file save dialog in the browser{color}
+* {color:#ffffff}Report generation completes in under 15 seconds for up to 200 conflicts{color}
+* {color:#ffffff}PDF renders correctly in Adobe Reader and Chrome PDF viewer{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i000b3:,SH Sprint 7,,8.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:19 AM
+Database query optimization,SH-55,10186,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:19 AM,02/Sep/26 10:41 PM,,,,0,Infastructure/DevOps,"Profile the database under realistic load and fix slow queries before launch. Conflict detection queries do heavy cross-table joins and need proper indexing to stay fast at scale.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}EXPLAIN ANALYZE run on all conflict detection queries — top 5 slowest documented{color}
+* {color:#ffffff}All foreign key columns used in JOIN conditions have confirmed DB indexes in Prisma schema{color}
+* {color:#ffffff}Full-text search columns have tsvector indexes{color}
+* {color:#ffffff}Prisma connection pool configured for Supabase free tier (max 20 connections){color}
+* {color:#ffffff}All conflict detection queries complete in under 500ms on the seeded dataset after optimization{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i000bb:,SH Sprint 7,,5.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:19 AM
+Mobile-responsive UI & error states,SH-56,10187,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:19 AM,02/Sep/26 10:41 PM,,,,0,Frontend/UI,"Conduct a full responsive design audit of all public pages and add missing error and empty states across the entire app.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}All public pages tested at 375px, 768px, and 1280px — no horizontal scrolling at 375px{color}
+* {color:#ffffff}Conflicts table collapses gracefully on mobile showing at minimum: politician, severity, and detail link{color}
+* {color:#ffffff}All filters and search bar usable on touch screen{color}
+* {color:#ffffff}Empty state shown on conflicts dashboard when filters return zero results{color}
+* {color:#ffffff}Failed upload shows specific error message; failed sync shows job error message from logs{color}
+* {color:#ffffff}Network timeout (10s no response) shows user-friendly message with retry button on all data-fetching pages{color}
+* {color:#ffffff}No raw error stack traces shown to users anywhere{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i000bj:,SH Sprint 7,,5.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:19 AM
+Historical agenda backfill job,SH-57,10188,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:19 AM,02/Sep/26 10:41 PM,,,,0,Data_Ingestion,"Build a one-time backfill script that pulls the past 2 years of meeting agendas for all configured cities and runs conflict detection across them. Gives the system historical data from day one of going live.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}Script at /scripts/backfill.js runnable manually: node scripts/backfill.js{color}
+* {color:#ffffff}Accepts optional --city flag to backfill a single city, runs all cities by default{color}
+* {color:#ffffff}Uses same upsert logic as nightly job — no duplicates on re-run{color}
+* {color:#ffffff}After ingestion, conflict detection runs on all newly inserted items{color}
+* {color:#ffffff}Logs to console: city name, items ingested, conflicts detected, time elapsed{color}
+* {color:#ffffff}Completes without crashing if one city's API is unavailable{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i000br:,SH Sprint 7,,5.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:19 AM
+Security audit & load test,SH-58,10189,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:19 AM,02/Sep/26 10:41 PM,,,,0,Testing/QA,"Two-part QA story: a security review of all API endpoints and file uploads, and a load test of the ingestion pipeline to confirm it handles bulk data without crashing.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}All /admin/* routes return 401 for requests without a valid session — verified with raw HTTP calls{color}
+* {color:#ffffff}Upload endpoint rejects files over 10MB with 413 and non-XLSX MIME types even with .xlsx extension{color}
+* {color:#ffffff}All user-supplied text rendered in frontend is escaped — no raw innerHTML with user data{color}
+* {color:#ffffff}Prisma parameterized queries used throughout — no raw SQL string concatenation{color}
+* {color:#ffffff}git grep confirms no API keys or secrets in repo history{color}
+* {color:#ffffff}Load test script uploads 100 synthetic Form 700 XLSX files and seeds 1000 agenda items — detection completes without timeout or OOM crash{color}
+* {color:#ffffff}Supabase 20-connection limit not exceeded during load test{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i000bz:,SH Sprint 7,,5.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:19 AM
+Add 3+ additional CA cities,SH-59,10190,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:19 AM,02/Sep/26 10:42 PM,,,,0,Data_Ingestion,"Expand beyond the initial city set by adding at least 3 more California cities through the admin data sources UI — not by hardcoding. Include a mix of Legistar and Apify sources to validate both pipelines.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}At least 3 new CA cities added via /admin/sources UI{color}
+* {color:#ffffff}At least one uses Legistar and at least one uses Apify/PDF{color}
+* {color:#ffffff}Each city's ingestion job runs successfully and inserts agenda items{color}
+* {color:#ffffff}Conflict detection runs on new cities and produces results{color}
+* {color:#ffffff}All new cities visible on admin sources page with correct last sync times{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i000c7:,SH Sprint 7,,5.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:19 AM
+Production deployment,SH-60,10191,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:24 AM,02/Sep/26 10:42 PM,,,,0,Infastructure/DevOps,"Execute the final production deployment. Frontend to the client's Vercel account connected to their fork of the GitHub repo. Backend to Railway. All environment variables confirmed in production before go-live.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}Frontend deployed to Vercel under client's account and accessible at a public URL{color}
+* {color:#ffffff}Backend deployed to Railway under client's account — GET /health returns 200{color}
+* {color:#ffffff}All environment variables set in both Vercel and Railway dashboards — confirmed by checking each env config panel{color}
+* {color:#ffffff}Frontend successfully calls the production backend API — confirmed by loading the conflicts dashboard with real data{color}
+* {color:#ffffff}Test Form 700 upload through production admin panel succeeds end-to-end{color}
+* {color:#ffffff}Client given production URLs and has confirmed access to both{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i000cf:,SH Sprint 8,,5.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:24 AM
+Secrets & credentials audit,SH-61,10192,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:24 AM,02/Sep/26 10:42 PM,,,,0,Infastructure/DevOps,"Final audit of all credentials. Nothing sensitive in the codebase, and the client knows exactly which keys are theirs to manage going forward.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}git log and git grep confirm no API keys, passwords, or secrets in repo history{color}
+* {color:#ffffff}/docs/credentials.md lists every environment variable: what it is, where to find/regenerate it, and who owns it{color}
+* {color:#ffffff}Supabase service role key, Apify API key, and Resend API key all confirmed under client accounts{color}
+* {color:#ffffff}Client walked through each credential and confirmed they have independent access to all of them{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i000cn:,SH Sprint 8,,3.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:24 AM
+Admin system health page & weekly digest email,SH-62,10193,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:24 AM,02/Sep/26 10:42 PM,,,,0,Frontend/UI,"Two related admin features for ongoing operations: a health page so the client can self-diagnose issues, and a weekly email digest so they stay informed without logging in every day.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}/admin/health shows: last N sync_logs rows with status and error, failed-run Retry button, last nightly sync time and result, DB row counts for all major tables{color}
+* {color:#ffffff}Page auto-refreshes every 60 seconds and loads in under 2 seconds{color}
+* {color:#ffffff}Weekly email sent every Monday at 8am to ADMIN_EMAIL env variable via Resend API{color}
+* {color:#ffffff}Email subject: ""FAIR Weekly Digest — [N] new conflicts detected"", body lists each new conflict with a direct link{color}
+* {color:#ffffff}Sends a ""no new conflicts"" message if week was clear{color}
+* {color:#ffffff}Test email triggerable via GET /api/admin/test-digest (admin auth required){color}
+* {color:#ffffff}Resend account and API key under client ownership{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i000cv:,SH Sprint 8,,5.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:24 AM
+Final regression test pass,SH-63,10194,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:24 AM,02/Sep/26 10:42 PM,,,,0,Testing/QA,"Complete regression test before go-live — both automated and manual. No story in this sprint is considered done until regression passes clean.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}npm test passes with zero failures in staging environment{color}
+* {color:#ffffff}npm run test:e2e passes with zero failures in staging environment{color}
+* {color:#ffffff}Manual smoke test completed: public dashboard, filters, conflict detail, politician profile, search, admin login, upload, CSV export, PDF report, manual conflict review — all working{color}
+* {color:#ffffff}Smoke test checklist documented in /docs/smoke_test.md with results recorded{color}
+* {color:#ffffff}Zero known bugs at go-live — all regression findings fixed before launch{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i000d3:,SH Sprint 8,,5.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:24 AM
+Browser & accessibility audit,SH-64,10195,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:24 AM,02/Sep/26 10:42 PM,,,,0,Testing/QA,"Confirm the public site works across browsers likely users will use and meets basic accessibility standards.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}Conflicts dashboard, conflict detail, politician profile, and landing page tested in Chrome, Firefox, and Safari with no visual breakage{color}
+* {color:#ffffff}Lighthouse accessibility score for the conflicts dashboard is 80 or above{color}
+* {color:#ffffff}All images have alt text, all inputs have labels, all interactive elements keyboard-navigable{color}
+* {color:#ffffff}Severity badge colors pass WCAG AA contrast ratio{color}
+* {color:#ffffff}Lighthouse scores documented in /docs/lighthouse_results.md{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i000db:,SH Sprint 8,,3.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:24 AM
+Developer handoff README,SH-65,10196,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,16/Mar/26 12:24 AM,02/Sep/26 10:42 PM,,,,0,Docs/Handoff,"Technical handoff document for any future developer who takes over the project. Should be self-contained enough that someone unfamiliar with the codebase can get a local environment running from scratch.
+
+Acceptance criteria — definition of done
+
+* {color:#ffffff}README covers: project overview, local dev setup step by step, all env variables with descriptions, DB migration steps, deploy process for frontend and backend, and architecture diagram reference{color}
+* {color:#ffffff}A team member follows the README on a clean machine and gets a working local environment without needing to ask questions{color}
+* {color:#ffffff}Committed to repo root before final presentation{color}",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i000dj:,SH Sprint 8,,3.0,,,10957,SH-175,191 Epic,To Do,16/Mar/26 12:24 AM
+Fuzzy matching library integration,SH-71,10271,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,21/Mar/26 11:24 PM,02/Sep/26 10:42 PM,,,,0,Parsing/Processing,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i000dn:,SH Sprint 8,,5.0,,,10957,SH-175,191 Epic,To Do,21/Mar/26 11:24 PM
+LLM-assisted entity resolution,SH-72,10272,Story,To Do,SH,Software Hornets,software,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,Medium,,,,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,21/Mar/26 11:29 PM,02/Sep/26 10:42 PM,,,,0,Parsing/Processing,"For entity name comparisons that score between 0.7 and 0.85 on fuzzy matching — confident enough to be worth checking but not confident enough to auto-flag — send both names to an LLM with a structured yes/no prompt to determine if they refer to the same organization. Matches above 0.85 skip the LLM entirely. Matches below 0.7 are discarded without an LLM call. This keeps API costs minimal while handling the hard cases automatically. Google LLM will be used
+
+*Acceptance criteria:*
+
+* {{resolveEntities(nameA, nameB, fuzzyScore)}} is a named exported async function in {{/utils/entityNorm.js}}
+* If {{fuzzyScore >= 0.85}} function returns {{true}} immediately — no LLM call made
+* If {{fuzzyScore < 0.7}} function returns {{false}} immediately — no LLM call made
+* If {{fuzzyScore}} is between 0.7 and 0.85 an LLM API call is made with a structured prompt asking only whether the two names refer to the same organization
+* LLM prompt instructs the model to respond with JSON only: {{{ ""match"": true }}} or {{{ ""match"": false }}} — no other text
+* Response is parsed and the boolean value returned
+* If the LLM API call fails or times out, function falls back to returning {{true}} if score >= 0.80, {{false}} if below — never throws
+* LLM API key stored in {{.env}} as {{LLM_API_KEY}} — never committed to repo
+* Unit tests cover: above 0.85 (no LLM call), below 0.7 (no LLM call), between thresholds with mocked LLM returning true, between thresholds with mocked LLM returning false, and LLM timeout fallback behavior
+* Estimated cost per 1000 entity comparisons logged to console in development mode so the team can monitor usage",,Sina Vaghefi,712020:e7ab2b0d-cdd1-4afe-9cf8-938058814e1b,,,,,,,,,{},,,0|i000dp:,SH Sprint 8,,8.0,,,10957,SH-175,191 Epic,To Do,21/Mar/26 11:29 PM

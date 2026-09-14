@@ -3,6 +3,8 @@ import { Navigate } from "react-router";
 import { Menu, Search, User } from "lucide-react";
 import { toast } from "react-hot-toast";
 
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
+
 type Source = {
   id: string;
   cityName: string;
@@ -29,7 +31,7 @@ export default function AdminSourcesPage() {
     try {
       setLoadError(null);
 
-      const res = await fetch("http://localhost:3000/api/admin/sources");
+      const res = await fetch(`${API_URL}/api/admin/sources`);
 
       if (!res.ok) {
         throw new Error("Failed to fetch sources");
@@ -67,7 +69,7 @@ export default function AdminSourcesPage() {
     setSyncingId(id);
 
     try {
-      const res = await fetch(`http://localhost:3000/api/admin/sources/${id}/sync`, {
+      const res = await fetch(`${API_URL}/api/admin/sources/${id}/sync`, {
         method: "POST",
       });
 

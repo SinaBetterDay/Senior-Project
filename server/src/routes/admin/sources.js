@@ -29,7 +29,8 @@ export const adminSources = [
   },
 ];
 
-router.get("/sources", async (req, res) => {
+// Mounted at /api/admin/sources (behind requireAdmin) in server/src/app.js.
+router.get("/", async (req, res) => {
   try {
     return res.json(adminSources);
   } catch (error) {
@@ -38,7 +39,7 @@ router.get("/sources", async (req, res) => {
   }
 });
 
-router.post("/sources/:id/sync", async (req, res) => {
+router.post("/:id/sync", async (req, res) => {
   try {
     const { id } = req.params;
     const source = adminSources.find((s) => s.id === id);

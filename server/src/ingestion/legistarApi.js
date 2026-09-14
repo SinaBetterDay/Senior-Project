@@ -150,8 +150,4 @@ async function getVotes(baseUrl, matterId) {
   }));
 }
 
-module.exports = {
-  getMeetings,
-  getAgendaItems,
-  getVotes
-};
+export { getMeetings, getAgendaItems, getVotes };

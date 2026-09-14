@@ -1,4 +1,9 @@
-import { getMeetings, getAgendaItems, getVotes } from './legistar-api.js';
+/**
+ * Manual smoke test for the Legistar REST wrapper (src/ingestion/legistarApi.js).
+ * Hits the live Sacramento Legistar endpoint — requires network access.
+ * Run: npm run smoke:legistar-api
+ */
+import { getMeetings, getAgendaItems, getVotes } from '../src/ingestion/legistarApi.js';
 
 async function testLegistarAPI() {
   const baseUrl = 'https://webapi.legistar.com/v1/sacramento';
