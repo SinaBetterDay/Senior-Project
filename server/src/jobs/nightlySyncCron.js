@@ -4,10 +4,14 @@ import { SYNC_CRON_SCHEDULE } from "../config/constants.js";
 
 export function startNightlySyncCron() {
   cron.schedule(SYNC_CRON_SCHEDULE, async () => {
-    console.log("[Nightly Sync] Cron triggered");
+  const timestamp = new Date().toISOString();
+  console.log(`[Nightly Sync Cron] Triggered at ${timestamp}`);
 
-    await syncQueue.add("run-sync", {
-      triggeredAt: new Date().toISOString(),
-    });
+  await syncQueue.add("run-sync", {
+    triggeredAt: timestamp,
+    source: "nightly-cron"
   });
+
+  console.log("[Nightly Sync Cron] Job enqueued");
+});
 }
