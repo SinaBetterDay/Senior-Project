@@ -1,102 +1,81 @@
-const DEFAULT_WINDOW_DAYS = 30;
 
-function daysAgoIso(days) {
-  const date = new Date();
-  date.setUTCDate(date.getUTCDate() - days);
-  return date.toISOString();
-}
+import { prisma } from "../db.js";
+import { fetchLegistarAgendaItemsForDataSource } from "./legistarApi.js";
 
-function normalizeLegistarBaseUrl(baseUrl) {
-  if (!baseUrl || typeof baseUrl !== 'string') {
-    return null;
+/**
+ * Ingest Legistar data for a single data source
+ */
+async function ingestSingleSource(source) {
+  const { baseUrl, meetings, allItems } =
+    await fetchLegistarAgendaItemsForDataSource(source);
+
+  let insertedCount = 0;
+
+  for (const { item, meeting, meetingId } of allItems) {
+    await prisma.agenda_items.upsert({
+      where: { external_id: String(item.EventItemId) },
+      update: {
+        meeting_id: meetingId,
+        city_id: source.id,
+        raw: item
+      },
+      create: {
+        external_id: String(item.EventItemId),
+        meeting_id: meetingId,
+        city_id: source.id,
+        raw: item
+      }
+    });
+
+    insertedCount++;
   }
 
-  const trimmed = baseUrl.trim().replace(/\/+$/, '');
-  if (trimmed.includes('/v1/')) {
-    return trimmed;
-  }
-
-  return `${trimmed}/v1`;
+  return {
+    baseUrl,
+    meetingsCount: meetings.length,
+    itemsInserted: insertedCount
+  };
 }
 
-function resolveCityApiBaseUrl(dataSource) {
-  const directBaseUrl =
-    dataSource.legistar_base_url ??
-    dataSource.base_url ??
-    dataSource.api_base_url ??
-    dataSource.legistar_url ??
-    dataSource.url;
+/**
+ * Loop through all active Legistar sources.
+ * One failing city does NOT stop the rest of the run.
+ */
+export async function runLegistarIngestion() {
+  const sources = await prisma.data_sources.findMany({
+    where: { active: true, type: "legistar" }
+  });
 
-  const normalizedDirect = normalizeLegistarBaseUrl(directBaseUrl);
-  if (normalizedDirect) {
-    return normalizedDirect;
-  }
+  const results = {
+    startedAt: new Date().toISOString(),
+    successes: [],
+    failures: []
+  };
 
-  const clientId =
-    dataSource.legistar_client_id ??
-    dataSource.client_id ??
-    dataSource.city_slug ??
-    dataSource.slug;
+  for (const source of sources) {
+    console.log(`[Legistar Sync] Starting ${source.city_name}`);
 
-  if (!clientId) {
-    return null;
-  }
+    try {
+      const result = await ingestSingleSource(source);
 
-  return `https://webapi.legistar.com/v1/${String(clientId).trim()}`;
-}
-
-async function fetchJson(url) {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Legistar request failed (${response.status}) for ${url}`);
-  }
-
-  return response.json();
-}
-
-export async function fetchRecentLegistarMeetings(baseUrl, lookbackDays = DEFAULT_WINDOW_DAYS) {
-  const windowStartIso = daysAgoIso(lookbackDays);
-  const filter = encodeURIComponent(`EventDate ge datetime'${windowStartIso}'`);
-  const order = encodeURIComponent('EventDate desc');
-  const url = `${baseUrl}/Events?$filter=${filter}&$orderby=${order}`;
-
-  const meetings = await fetchJson(url);
-  return Array.isArray(meetings) ? meetings : [];
-}
-
-export async function fetchAgendaItemsForMeeting(baseUrl, meetingId) {
-  const encodedMeetingId = encodeURIComponent(String(meetingId));
-  const url = `${baseUrl}/Events/${encodedMeetingId}/EventItems`;
-  const items = await fetchJson(url);
-  return Array.isArray(items) ? items : [];
-}
-
-export async function fetchLegistarAgendaItemsForDataSource(dataSource, lookbackDays = DEFAULT_WINDOW_DAYS) {
-  const baseUrl = resolveCityApiBaseUrl(dataSource);
-  if (!baseUrl) {
-    throw new Error(
-      `Missing Legistar configuration for city "${dataSource.city_name ?? dataSource.name ?? 'unknown'}"`,
-    );
-  }
-
-  const meetings = await fetchRecentLegistarMeetings(baseUrl, lookbackDays);
-  const allItems = [];
-
-  for (const meeting of meetings) {
-    const meetingId = meeting.EventId ?? meeting.event_id;
-    if (!meetingId) {
-      continue;
-    }
-
-    const meetingItems = await fetchAgendaItemsForMeeting(baseUrl, meetingId);
-    for (const item of meetingItems) {
-      allItems.push({
-        item,
-        meeting,
-        meetingId,
+      results.successes.push({
+        sourceId: source.id,
+        city: source.city_name,
+        ...result
       });
+
+      console.log(`[Legistar Sync] Success: ${source.city_name}`);
+    } catch (err) {
+      results.failures.push({
+        sourceId: source.id,
+        city: source.city_name,
+        error: err.message
+      });
+
+      console.error(`[Legistar Sync] FAILED: ${source.city_name}`, err);
     }
   }
 
-  return { baseUrl, meetings, allItems };
+  results.finishedAt = new Date().toISOString();
+  return results;
 }

@@ -1,9 +1,12 @@
 import Fuse from "fuse.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { MATCH_BANDS } from "../config/conflictRules.js";
+import {
+  areSameEntity,
+  normalizeEntityName,
+} from "../utils/entityNorm.js";
 
-const ENTITY_SUFFIXES =
-  /\b(llc|inc|incorporated|corp|corporation|ltd|limited|co|company)\.?$/i;
+export { normalizeEntityName } from "../utils/entityNorm.js";
 
 export function pickField(row, ...keys) {
   if (!row) return undefined;
@@ -20,19 +23,6 @@ export function collapseText(value) {
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-export function normalizeEntityName(name) {
-  let text = collapseText(name);
-  if (!text) return "";
-
-  let prev;
-  do {
-    prev = text;
-    text = text.replace(ENTITY_SUFFIXES, "").trim();
-  } while (text !== prev);
-
-  return text;
 }
 
 export function getAgendaText(item = {}) {
@@ -129,7 +119,10 @@ Rules:
 
 export async function matchNamedEntity(name, agendaText, deps = {}) {
   const scoreFn = deps.scoreEntityInText ?? scoreEntityInText;
-  const score = scoreFn(name, agendaText);
+  const normalizedAgendaText = normalizeEntityName(agendaText);
+  const score = areSameEntity(name, normalizedAgendaText)
+    ? 1
+    : scoreFn(name, agendaText);
   const result = { matched: false, score, usedGemini: false };
 
   if (score >= MATCH_BANDS.AUTO_MATCH) {
