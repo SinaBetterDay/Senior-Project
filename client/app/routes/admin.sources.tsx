@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
-import { Navigate } from "react-router";
-import { Menu, Search, User } from "lucide-react";
 import { toast } from "react-hot-toast";
-
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
+import { AdminGuard, AdminNav } from "../adminComponents";
+import { adminFetch } from "../adminAuth";
 
 type Source = {
   id: string;
@@ -19,8 +17,7 @@ function formatDate(date: string | null) {
   return new Date(date).toLocaleString();
 }
 
-export default function AdminSourcesPage() {
-  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+function AdminSourcesContent() {
   const [sources, setSources] = useState<Source[]>([]);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
@@ -31,7 +28,7 @@ export default function AdminSourcesPage() {
     try {
       setLoadError(null);
 
-      const res = await fetch(`${API_URL}/api/admin/sources`);
+      const res = await adminFetch("/api/admin/sources");
 
       if (!res.ok) {
         throw new Error("Failed to fetch sources");
@@ -49,13 +46,6 @@ export default function AdminSourcesPage() {
   }
 
   useEffect(() => {
-    const adminStatus = localStorage.getItem("isAdmin") === "true";
-    setIsAdmin(adminStatus);
-  }, []);
-
-  useEffect(() => {
-    if (!isAdmin) return;
-
     loadSources();
 
     const interval = setInterval(() => {
@@ -63,13 +53,13 @@ export default function AdminSourcesPage() {
     }, 30000);
 
     return () => clearInterval(interval);
-  }, [isAdmin]);
+  }, []);
 
   async function handleSync(id: string) {
     setSyncingId(id);
 
     try {
-      const res = await fetch(`${API_URL}/api/admin/sources/${id}/sync`, {
+      const res = await adminFetch(`/api/admin/sources/${id}/sync`, {
         method: "POST",
       });
 
@@ -87,41 +77,9 @@ export default function AdminSourcesPage() {
     }
   }
 
-  if (isAdmin === null) {
-    return null;
-  }
-
-  if (!isAdmin) {
-    return <Navigate to="/admin/login" replace />;
-  }
-
   return (
     <div className="min-h-screen bg-[#ececec] text-[#1f1f1f]">
-      <header className="bg-[#3f4c97] text-white">
-        <div className="flex items-center justify-between px-6 py-5 md:px-10">
-          <div className="flex items-center gap-6">
-            <button
-              type="button"
-              className="rounded-md p-1 transition hover:bg-white/10"
-            >
-              <Menu size={30} />
-            </button>
-
-            <div className="leading-tight">
-              <p className="text-xs uppercase tracking-wide">California</p>
-              <h1 className="text-xl font-semibold md:text-3xl">
-                FAIR POLITICAL PRACTICES COMMISSION
-              </h1>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-6">
-            <Search size={30} />
-            <User size={30} />
-          </div>
-        </div>
-        <div className="h-2 bg-[#d3b11f]" />
-      </header>
+      <AdminNav title="Sources dashboard" />
 
       <main className="px-4 py-10 md:px-10">
         <div className="mx-auto max-w-6xl rounded-[2rem] bg-[#d9e3fb] px-6 py-8 shadow-sm md:px-10">
@@ -207,5 +165,13 @@ export default function AdminSourcesPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function AdminSourcesPage() {
+  return (
+    <AdminGuard>
+      <AdminSourcesContent />
+    </AdminGuard>
   );
 }

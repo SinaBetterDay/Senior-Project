@@ -26,6 +26,7 @@ vi.mock("../../src/lib/prisma.js", () => {
       update: vi.fn(),
       delete: vi.fn(),
     },
+    politician: { findUnique: vi.fn() },
   };
   return { prisma, default: prisma };
 });
@@ -75,6 +76,7 @@ beforeEach(() => {
   prisma.form700Filing.findUnique.mockResolvedValue(null);
   prisma.form700Filing.update.mockResolvedValue({ id: FILING_ID });
   prisma.form700Filing.delete.mockResolvedValue({ id: FILING_ID });
+  prisma.politician.findUnique.mockResolvedValue({ fullName: "James M Gore", slug: "james-m-gore" });
   prisma.$transaction.mockImplementation(async (fn) => fn(prisma.__tx));
   prisma.__tx.form700Filing.create.mockResolvedValue({ id: FILING_ID });
   for (const model of [
@@ -96,6 +98,7 @@ describe("POST /api/admin/upload/form700", () => {
     expect(res.body).toEqual({
       filing_id: FILING_ID,
       politician_id: POLITICIAN_ID,
+      politician: { name: "James M Gore", slug: "james-m-gore" },
       schedules_parsed: { A: 39, B: 15, CDE: 24, A2: 17 },
       archived_path: ARCHIVED_PATH,
     });
@@ -183,6 +186,14 @@ describe("POST /api/admin/upload/form700", () => {
     expect(res.body.error).toMatch(/recognizable Form 700|valid XLSX/i);
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(archiveWorkbook).not.toHaveBeenCalled();
+  });
+
+  it("rejects files without an .xlsx extension before parsing", async () => {
+    const res = await postFile(validBuffer, { filename: "form700.xml" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Only \.xlsx files are accepted/);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it("returns 400 for the malformed fixture", async () => {
