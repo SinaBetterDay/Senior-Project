@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate } from "react-router";
 import { Menu, Search, User } from "lucide-react";
 import { toast } from "react-hot-toast";
-
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
+import { apiBaseUrl, getVerifiedAdminSession } from "../lib/supabase";
 
 type Source = {
   id: string;
@@ -30,8 +29,12 @@ export default function AdminSourcesPage() {
   async function loadSources() {
     try {
       setLoadError(null);
+      const session = await getVerifiedAdminSession();
+      if (!session) throw new Error("Admin session expired");
 
-      const res = await fetch(`${API_URL}/api/admin/sources`);
+      const res = await fetch(`${apiBaseUrl}/api/admin/sources`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
 
       if (!res.ok) {
         throw new Error("Failed to fetch sources");
@@ -49,8 +52,17 @@ export default function AdminSourcesPage() {
   }
 
   useEffect(() => {
-    const adminStatus = localStorage.getItem("isAdmin") === "true";
-    setIsAdmin(adminStatus);
+    let active = true;
+    getVerifiedAdminSession()
+      .then((session) => {
+        if (active) setIsAdmin(session !== null);
+      })
+      .catch(() => {
+        if (active) setIsAdmin(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -69,8 +81,11 @@ export default function AdminSourcesPage() {
     setSyncingId(id);
 
     try {
-      const res = await fetch(`${API_URL}/api/admin/sources/${id}/sync`, {
+      const session = await getVerifiedAdminSession();
+      if (!session) throw new Error("Admin session expired");
+      const res = await fetch(`${apiBaseUrl}/api/admin/sources/${id}/sync`, {
         method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}` },
       });
 
       if (!res.ok) {

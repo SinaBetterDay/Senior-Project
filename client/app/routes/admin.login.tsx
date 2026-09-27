@@ -1,7 +1,25 @@
+import { useState } from "react";
+import { signInAdmin } from "../lib/supabase";
+
 export default function AdminLoginPage() {
-  function handleLogin() {
-    localStorage.setItem("isAdmin", "true");
-    window.location.href = "/admin/sources";
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      await signInAdmin(email, password);
+      window.location.href = "/admin/sources";
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : "Unable to sign in.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -11,14 +29,18 @@ export default function AdminLoginPage() {
           Admin Login
         </h1>
 
-        <form className="space-y-4">
+        <form className="space-y-4" onSubmit={handleLogin}>
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">
-              Username
+              Email
             </label>
             <input
-              type="text"
-              placeholder="Enter username"
+              type="email"
+              autoComplete="username"
+              required
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="Admin email"
               className="w-full rounded-lg border border-slate-300 px-4 py-2 outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -29,23 +51,25 @@ export default function AdminLoginPage() {
             </label>
             <input
               type="password"
-              placeholder="Enter password"
+              autoComplete="current-password"
+              required
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="Password"
               className="w-full rounded-lg border border-slate-300 px-4 py-2 outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
           <button
-            type="button"
-            onClick={handleLogin}
+            type="submit"
+            disabled={submitting}
             className="w-full rounded-lg bg-blue-700 px-4 py-2 font-semibold text-white hover:bg-blue-800"
           >
-            Login
+            {submitting ? "Signing in..." : "Login"}
           </button>
         </form>
 
-        <p className="mt-4 text-center text-sm text-slate-500">
-          Placeholder login page for admin route protection.
-        </p>
+        {error && <p role="alert" className="mt-4 text-center text-sm text-red-700">{error}</p>}
       </div>
     </div>
   );

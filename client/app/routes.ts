@@ -5,4 +5,5 @@ export default [
   route("about", "routes/about.tsx"),
   route("admin/login", "routes/admin.login.tsx"),
   route("admin/sources", "routes/admin.sources.tsx"),
+  route("conflicts/:id", "routes/conflicts.$id.tsx"),
 ] satisfies RouteConfig;
