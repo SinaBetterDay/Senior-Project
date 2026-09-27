@@ -1,5 +1,3 @@
-// Public API stub — full implementation is Sprint 6.
-// Mounted at /api/search in server/src/app.js.
 import express from 'express';
 import prisma from '../lib/prisma.js';
 
@@ -22,102 +20,134 @@ router.get('/', async (req, res, next) => {
     });
   }
 
-  const textFilter = {
-    contains: query,
-    mode: 'insensitive',
-  };
-
   try {
     const [politicians, agendaItems, conflicts] = await Promise.all([
-      prisma.politician.findMany({
-        where: {
-          OR: [
-            { fullName: textFilter },
-            { officeTitle: textFilter },
-            { party: textFilter },
-            { slug: textFilter },
-          ],
-        },
-        select: {
-          id: true,
-          slug: true,
-          fullName: true,
-          officeTitle: true,
-          party: true,
-        },
-        orderBy: {
-          fullName: 'asc',
-        },
-        take: RESULT_LIMIT,
-      }),
+      prisma.$queryRaw`
+        SELECT
+          p.id,
+          p.slug,
+          p.full_name AS "fullName",
+          p.office_title AS "officeTitle",
+          p.party,
+          ts_rank(
+            to_tsvector(
+              'english',
+              concat_ws(
+                ' ',
+                p.full_name,
+                p.office_title,
+                p.party,
+                p.district,
+                p.slug
+              )
+            ),
+            websearch_to_tsquery('english', ${query})
+          ) AS rank
+        FROM politicians p
+        WHERE to_tsvector(
+          'english',
+          concat_ws(
+            ' ',
+            p.full_name,
+            p.office_title,
+            p.party,
+            p.district,
+            p.slug
+          )
+        ) @@ websearch_to_tsquery('english', ${query})
+        ORDER BY rank DESC, p.full_name ASC
+        LIMIT ${RESULT_LIMIT}
+      `,
 
-      prisma.agendaItem.findMany({
-        where: {
-          OR: [
-            { title: textFilter },
-            { description: textFilter },
-            { itemText: textFilter },
-            { cityName: textFilter },
-          ],
-        },
-        select: {
-          id: true,
-          title: true,
-          description: true,
-          cityName: true,
-          meetingDate: true,
-        },
-        orderBy: {
-          meetingDate: 'desc',
-        },
-        take: RESULT_LIMIT,
-      }),
+      prisma.$queryRaw`
+        SELECT
+          a.id,
+          a.title,
+          a.description,
+          a.city_name AS "cityName",
+          a.meeting_date AS "meetingDate",
+          ts_rank(
+            to_tsvector(
+              'english',
+              concat_ws(
+                ' ',
+                a.title,
+                a.description,
+                a.item_text,
+                a.city_name,
+                a.body_name
+              )
+            ),
+            websearch_to_tsquery('english', ${query})
+          ) AS rank
+        FROM agenda_items a
+        WHERE to_tsvector(
+          'english',
+          concat_ws(
+            ' ',
+            a.title,
+            a.description,
+            a.item_text,
+            a.city_name,
+            a.body_name
+          )
+        ) @@ websearch_to_tsquery('english', ${query})
+        ORDER BY rank DESC, a.meeting_date DESC NULLS LAST
+        LIMIT ${RESULT_LIMIT}
+      `,
 
-      prisma.conflict.findMany({
-        where: {
-          OR: [
-            { conflictType: textFilter },
-            { entityName: textFilter },
-            {
-              politician: {
-                fullName: textFilter,
-              },
-            },
-            {
-              agendaItem: {
-                OR: [
-                  { title: textFilter },
-                  { description: textFilter },
-                ],
-              },
-            },
-          ],
-        },
-        select: {
-          id: true,
-          conflictType: true,
-          severity: true,
-          entityName: true,
-          detectedAt: true,
-          politician: {
-            select: {
-              slug: true,
-              fullName: true,
-            },
-          },
-          agendaItem: {
-            select: {
-              id: true,
-              title: true,
-              description: true,
-            },
-          },
-        },
-        orderBy: {
-          detectedAt: 'desc',
-        },
-        take: RESULT_LIMIT,
-      }),
+      prisma.$queryRaw`
+        SELECT
+          c.id,
+          c.conflict_type AS "conflictType",
+          c.severity,
+          c.entity_name AS "entityName",
+          c.detected_at AS "detectedAt",
+          p.slug AS "politicianSlug",
+          p.full_name AS "politicianName",
+          a.title AS "agendaTitle",
+          a.description AS "agendaDescription",
+          ts_rank(
+            to_tsvector(
+              'english',
+              concat_ws(
+                ' ',
+                c.conflict_type,
+                c.severity,
+                c.rule_reference,
+                c.entity_name,
+                c.source_key,
+                p.full_name,
+                p.office_title,
+                a.title,
+                a.description,
+                a.item_text
+              )
+            ),
+            websearch_to_tsquery('english', ${query})
+          ) AS rank
+        FROM conflicts c
+        JOIN politicians p ON p.id = c.politician_id
+        JOIN agenda_items a ON a.id = c.agenda_item_id
+        WHERE to_tsvector(
+          'english',
+          concat_ws(
+            ' ',
+            c.conflict_type,
+            c.severity,
+            c.rule_reference,
+            c.entity_name,
+            c.source_key,
+            p.full_name,
+            p.office_title,
+            a.title,
+            a.description,
+            a.item_text
+          )
+        ) @@ websearch_to_tsquery('english', ${query})
+        ORDER BY rank DESC, c.detected_at DESC
+        LIMIT ${RESULT_LIMIT}
+      `,
     ]);
 
     const groups = {
@@ -147,9 +177,9 @@ router.get('/', async (req, res, next) => {
         id: conflict.id,
         title: conflict.conflictType,
         preview: [
-          conflict.politician?.fullName,
+          conflict.politicianName,
           conflict.entityName,
-          conflict.agendaItem?.title,
+          conflict.agendaTitle,
           `Severity: ${conflict.severity}`,
         ]
           .filter(Boolean)
