@@ -8,15 +8,45 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 type Source = {
   id: string;
   cityName: string;
-  sourceType: "Legistar" | "Apify" | "PDF";
+  sourceType: "legistar" | "apify" | "pdf" | "Legistar" | "Apify" | "PDF";
   lastSyncTime: string | null;
   totalAgendaItems: number;
   lastError: string | null;
+  status: "ready" | "running" | "success" | "failed" | "disabled";
 };
+
+function getAdminAccessToken() {
+  const savedToken = localStorage.getItem("adminAccessToken");
+  if (savedToken) return savedToken;
+
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    if (!key?.startsWith("sb-") || !key.endsWith("-auth-token")) continue;
+
+    try {
+      const session = JSON.parse(localStorage.getItem(key) ?? "null");
+      if (typeof session?.access_token === "string") return session.access_token;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
 
 function formatDate(date: string | null) {
   if (!date) return "Never";
   return new Date(date).toLocaleString();
+}
+
+function statusLabel(status: Source["status"]) {
+  return status === "ready" ? "Ready" : status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+function statusClass(status: Source["status"]) {
+  if (status === "running") return "bg-blue-100 text-blue-800";
+  if (status === "success" || status === "ready") return "bg-green-100 text-green-800";
+  if (status === "failed") return "bg-red-100 text-red-800";
+  return "bg-gray-100 text-gray-700";
 }
 
 export default function AdminSourcesPage() {
@@ -31,17 +61,21 @@ export default function AdminSourcesPage() {
     try {
       setLoadError(null);
 
-      const res = await fetch(`${API_URL}/api/admin/sources`);
+      const token = getAdminAccessToken();
+      const res = await fetch(`${API_URL}/api/admin/sources`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
 
       if (!res.ok) {
-        throw new Error("Failed to fetch sources");
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? body?.message ?? `Failed to fetch sources (${res.status})`);
       }
 
       const data = await res.json();
       setSources(data);
     } catch (err) {
       console.error("Failed to fetch sources", err);
-      setLoadError("Failed to load source data.");
+      setLoadError(err instanceof Error ? err.message : "Failed to load source data.");
     } finally {
       setLoading(false);
       setLastRefreshed(new Date());
@@ -158,6 +192,7 @@ export default function AdminSourcesPage() {
                       <th className="px-4 py-4 text-left font-semibold">Source Type</th>
                       <th className="px-4 py-4 text-left font-semibold">Last Sync</th>
                       <th className="px-4 py-4 text-left font-semibold">Agenda Items</th>
+                      <th className="px-4 py-4 text-left font-semibold">Status</th>
                       <th className="px-4 py-4 text-left font-semibold">Last Error</th>
                       <th className="px-4 py-4 text-left font-semibold">Action</th>
                     </tr>
@@ -166,20 +201,22 @@ export default function AdminSourcesPage() {
                   <tbody className="bg-white">
                     {sources.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                        <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
                           No data sources found.
                         </td>
                       </tr>
                     ) : (
                       sources.map((source, index) => (
-                        <tr
-                          key={source.id}
-                          className={index !== sources.length - 1 ? "border-b border-gray-200" : ""}
-                        >
+                        <tr key={source.id} className={index !== sources.length - 1 ? "border-b border-gray-200" : ""}>
                           <td className="px-4 py-4">{source.cityName}</td>
-                          <td className="px-4 py-4">{source.sourceType}</td>
+                          <td className="px-4 py-4 capitalize">{source.sourceType}</td>
                           <td className="px-4 py-4">{formatDate(source.lastSyncTime)}</td>
                           <td className="px-4 py-4">{source.totalAgendaItems}</td>
+                          <td className="px-4 py-4">
+                            <span className={`inline-flex rounded px-2 py-1 text-xs font-semibold ${statusClass(source.status)}`}>
+                              {statusLabel(source.status)}
+                            </span>
+                          </td>
                           <td className="px-4 py-4">
                             {source.lastError ? (
                               <span className="text-red-700">{source.lastError}</span>
