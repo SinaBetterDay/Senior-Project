@@ -71,6 +71,8 @@ export default function AdminSourcesPage() {
   async function loadSources() {
     try {
       setLoadError(null);
+      const session = await getVerifiedAdminSession();
+      if (!session) throw new Error("Admin session expired");
 
       const token = getAdminAccessToken();
       const res = await fetch(`${API_URL}/api/admin/sources`, {
