@@ -6,7 +6,7 @@
  * interest: investments, real property, sources of income, gifts, business positions).
  *
  * This file is the single source of thresholds, fuse/Gemini bands, land-use
- * keywords, and the severity stub. Detectors import from here rather than
+ * keywords, and the severity bands. Detectors import from here rather than
  * hard-coding dollar cutoffs.
  */
 
@@ -122,13 +122,10 @@ export function hasLandUseKeyword(text) {
 }
 
 export function calculateSeverity({ conflictType, amount } = {}) {
-  if (
-    conflictType === CONFLICT_TYPES.BUSINESS_POSITION ||
-    conflictType === CONFLICT_TYPES.REAL_ESTATE
-  ) {
-    return SEVERITY.MEDIUM;
-  }
-
+  if (conflictType === CONFLICT_TYPES.BUSINESS_POSITION) {
+  return SEVERITY.MEDIUM;
+}
+  
   const dollars = parseAmount(amount);
   if (dollars == null) return SEVERITY.MEDIUM;
   if (dollars >= SEVERITY_AMOUNT.HIGH) return SEVERITY.HIGH;

@@ -1,143 +1,77 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router";
-import { apiBaseUrl, getVerifiedAdminSession } from "../lib/supabase";
+import { Link, useParams, useSearchParams } from "react-router";
 
-type ReviewStatus = "pending" | "confirmed_conflict" | "not_applicable";
 type Conflict = {
   id: string;
+  politician: { name: string; district: string | null };
   conflictType: string;
   severity: string;
   ruleReference: string;
-  detectedAt: string;
-  reviewStatus: ReviewStatus;
-  reviewNote: string | null;
-  reviewedAt: string | null;
-  politician: { fullName: string; officeTitle: string };
-  agendaItem: {
-    title: string | null;
-    itemText: string | null;
-    bodyName: string | null;
-    cityName: string | null;
-    meetingDate: string | null;
-    meeting: { meetingDate: string; bodyName: string } | null;
-  };
+  entityName: string | null;
+  scheduleEntry: { scheduleType: string; entityName: string | null; dollarValue: string | null; natureOfInterest: string | null } | null;
+  agendaItem: { title: string | null; text: string | null; meetingDate: string | null; city: string | null };
 };
 
-const statusLabel: Record<ReviewStatus, string> = {
-  pending: "Pending",
-  confirmed_conflict: "Confirmed conflict",
-  not_applicable: "Not applicable",
-};
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
+const display = (value: string | null | undefined) => value || "Not available";
+const label = (value: string) => value.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 
-export default function ConflictDetailPage() {
+function severityExplanation(conflict: Conflict) {
+  const amount = conflict.scheduleEntry?.dollarValue;
+  if (conflict.conflictType === "BUSINESS_POSITION") return "A reported business position was matched to this agenda item. Review the filing and agenda before drawing a conclusion.";
+  if (!amount) return "The reported financial interest was matched to this agenda item. Its value could not be confirmed from the filing.";
+  if (conflict.severity === "HIGH") return `The reported value (${amount}) falls in the project's high severity band (starting at $10,000).`;
+  if (conflict.severity === "MEDIUM") return `The reported value (${amount}) was assigned medium severity by the project's rules. Review the Form 700 entry to confirm the amount.`;
+  return `The reported value (${amount}) falls in the project's low severity band. Review the underlying Form 700 entry.`;
+}
+
+function date(value: string | null) {
+  if (!value) return "Not available";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "Not available" : parsed.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
+}
+
+export function meta() { return [{ title: "Conflict detail | FAIR" }]; }
+
+export default function ConflictDetail() {
   const { id } = useParams();
+  const [params] = useSearchParams();
+  const back = `/conflicts${params.size ? `?${params.toString()}` : ""}`;
   const [conflict, setConflict] = useState<Conflict | null>(null);
-  const [status, setStatus] = useState<ReviewStatus>("pending");
-  const [note, setNote] = useState("");
-  const [message, setMessage] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [status, setStatus] = useState<"loading" | "missing" | "error" | "ready">("loading");
 
   useEffect(() => {
-    getVerifiedAdminSession()
-      .then((session) => setIsAdmin(session !== null))
-      .catch(() => setIsAdmin(false));
-  }, []);
-
-  useEffect(() => {
-    fetch(`${apiBaseUrl}/api/conflicts/${id}`)
-      .then((response) => {
+    const controller = new AbortController();
+    setStatus("loading");
+    fetch(`${API_URL}/api/conflicts/${encodeURIComponent(id ?? "")}`, { signal: controller.signal })
+      .then(async response => {
+        if (response.status === 404) { setStatus("missing"); return; }
         if (!response.ok) throw new Error("Unable to load conflict");
-        return response.json();
+        const body = await response.json();
+        setConflict(body.data);
+        setStatus("ready");
       })
-      .then((data: Conflict) => {
-        setConflict(data);
-        setStatus(data.reviewStatus);
-      })
-      .catch(() => setMessage("Conflict data is temporarily unavailable."));
+      .catch(error => { if (error.name !== "AbortError") setStatus("error"); });
+    return () => controller.abort();
   }, [id]);
 
-  async function saveReview(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (note.trim().length < 10) {
-      setMessage("Add a note of at least 10 characters before saving.");
-      return;
-    }
-
-    setSaving(true);
-    setMessage(null);
-    try {
-      const session = await getVerifiedAdminSession();
-      if (!session) {
-        setIsAdmin(false);
-        throw new Error("Sign in with the admin account to save this review.");
-      }
-
-      const response = await fetch(`${apiBaseUrl}/api/conflicts/${id}/review`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ status, note }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Unable to save review");
-      setConflict(data);
-      setNote("");
-      setMessage("Review saved.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to save review");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (!conflict) return <main className="p-10">{message ?? "Loading conflict..."}</main>;
-
-  const agendaTitle = conflict.agendaItem.title ?? conflict.agendaItem.itemText ?? "Agenda details unavailable";
-  const meetingName = conflict.agendaItem.meeting?.bodyName ?? conflict.agendaItem.bodyName ?? conflict.agendaItem.cityName;
-  const meetingDate = conflict.agendaItem.meeting?.meetingDate ?? conflict.agendaItem.meetingDate;
-
-  return (
-    <main className="min-h-screen bg-slate-100 px-5 py-10 text-slate-900 md:px-10">
-      <div className="mx-auto max-w-4xl">
-        <Link to="/" className="text-sm font-semibold text-indigo-700">&larr; All conflicts</Link>
-        <article className={`mt-5 rounded-2xl bg-white p-6 shadow-sm md:p-10 ${conflict.reviewStatus === "not_applicable" ? "border-2 border-slate-300" : ""}`}>
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-sm font-bold uppercase tracking-wider text-indigo-700">{conflict.conflictType}</p>
-              <h1 className="mt-2 text-3xl font-bold">{conflict.politician.fullName}</h1>
-              <p className="mt-1 text-slate-600">{conflict.politician.officeTitle}</p>
-            </div>
-            <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-bold">{statusLabel[conflict.reviewStatus]}</span>
-          </div>
-          <dl className="mt-8 grid gap-5 border-y border-slate-200 py-6 sm:grid-cols-2">
-            <div><dt className="text-xs font-bold uppercase text-slate-500">Agenda item</dt><dd className="mt-1">{agendaTitle}</dd></div>
-            <div><dt className="text-xs font-bold uppercase text-slate-500">Meeting</dt><dd className="mt-1">{meetingName ?? "Meeting details unavailable"}{meetingDate ? ` (${new Date(meetingDate).toLocaleDateString()})` : ""}</dd></div>
-            <div><dt className="text-xs font-bold uppercase text-slate-500">Rule reference</dt><dd className="mt-1">{conflict.ruleReference}</dd></div>
-            <div><dt className="text-xs font-bold uppercase text-slate-500">Severity</dt><dd className="mt-1 capitalize">{conflict.severity.toLowerCase()}</dd></div>
-          </dl>
-          <section className="mt-8">
-            <h2 className="text-lg font-bold">Review record</h2>
-            {conflict.reviewNote ? <p className="mt-2 rounded-lg bg-slate-50 p-4 text-slate-700">{conflict.reviewNote}</p> : <p className="mt-2 text-slate-500">No review note has been recorded.</p>}
-            {conflict.reviewedAt && <p className="mt-2 text-xs text-slate-500">Reviewed {new Date(conflict.reviewedAt).toLocaleString()}</p>}
-          </section>
-          {isAdmin && (
-            <form onSubmit={saveReview} className="mt-10 border-t border-slate-200 pt-8">
-              <h2 className="text-lg font-bold">Admin review</h2>
-              <label className="mt-4 block text-sm font-semibold" htmlFor="status">Status</label>
-              <select id="status" value={status} onChange={(event) => setStatus(event.target.value as ReviewStatus)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2">
-                <option value="pending">Pending</option><option value="confirmed_conflict">Confirmed conflict</option><option value="not_applicable">Not applicable</option>
-              </select>
-              <label className="mt-4 block text-sm font-semibold" htmlFor="note">Mandatory note</label>
-              <textarea id="note" required minLength={10} value={note} onChange={(event) => setNote(event.target.value)} className="mt-1 min-h-28 w-full rounded-lg border border-slate-300 p-3" placeholder="Explain the review decision (10 characters minimum)." />
-              <button disabled={saving} className="mt-4 rounded-lg bg-indigo-700 px-5 py-2 font-bold text-white disabled:opacity-50">{saving ? "Saving..." : "Save review"}</button>
-              {message && <p role="status" className="mt-3 text-sm font-semibold text-slate-700">{message}</p>}
-            </form>
-          )}
-        </article>
-      </div>
-    </main>
-  );
+  return <main className="min-h-screen bg-slate-50 text-slate-900">
+    <div className="mx-auto max-w-4xl px-5 py-10">
+      <Link to={back} className="text-sm font-semibold text-blue-700 hover:underline">← Back to conflicts</Link>
+      {status === "loading" && <p className="mt-12" role="status">Loading conflict…</p>}
+      {status === "missing" && <section className="mt-12"><h1 className="text-3xl font-bold">404 — Conflict not found</h1><p className="mt-3">This conflict ID does not exist or is no longer available.</p></section>}
+      {status === "error" && <section className="mt-12"><h1 className="text-3xl font-bold">Unable to load conflict</h1><p className="mt-3">Please try again later.</p></section>}
+      {status === "ready" && conflict && <>
+        <header className="mt-9 border-b border-slate-200 pb-7">
+          <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">Conflict detail</p>
+          <h1 className="mt-2 text-3xl font-bold">{conflict.politician.name}</h1>
+          <p className="mt-2 text-slate-600">District: {display(conflict.politician.district)}</p>
+          <div className="mt-5 flex flex-wrap items-center gap-3"><span className="rounded-full bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-900">{label(conflict.conflictType)}</span><span className={`rounded-full px-3 py-1 text-sm font-bold ${conflict.severity === "HIGH" ? "bg-red-100 text-red-900" : conflict.severity === "MEDIUM" ? "bg-amber-100 text-amber-900" : "bg-green-100 text-green-900"}`}>{conflict.severity}</span></div>
+        </header>
+        <section className="mt-6 rounded-xl border border-slate-200 bg-white p-6"><h2 className="text-xl font-bold">Why this was flagged</h2><p className="mt-3 leading-relaxed">{severityExplanation(conflict)}</p><p className="mt-3 text-sm text-slate-600">A flag calls for review; it does not establish a legal conflict.</p><p className="mt-4 text-sm"><strong>Rule reference:</strong> {display(conflict.ruleReference)}</p></section>
+        <section className="mt-6 rounded-xl border border-slate-200 bg-white p-6"><h2 className="text-xl font-bold">Form 700 disclosure</h2><dl className="mt-4 grid gap-4 sm:grid-cols-2"><div><dt className="text-sm text-slate-500">Schedule</dt><dd className="font-medium">{conflict.scheduleEntry ? `Schedule ${conflict.scheduleEntry.scheduleType}` : "Not available"}</dd></div><div><dt className="text-sm text-slate-500">Entity or property</dt><dd className="font-medium">{display(conflict.scheduleEntry?.entityName ?? conflict.entityName)}</dd></div><div><dt className="text-sm text-slate-500">Reported value</dt><dd className="font-medium">{display(conflict.scheduleEntry?.dollarValue)}</dd></div><div><dt className="text-sm text-slate-500">Nature of interest</dt><dd className="font-medium">{display(conflict.scheduleEntry?.natureOfInterest)}</dd></div></dl></section>
+        <section className="mt-6 rounded-xl border border-slate-200 bg-white p-6"><h2 className="text-xl font-bold">Agenda item</h2><p className="mt-3 text-sm text-slate-600">Meeting: {date(conflict.agendaItem.meetingDate)} · City: {display(conflict.agendaItem.city)}</p>{conflict.agendaItem.title && <h3 className="mt-5 font-semibold">{conflict.agendaItem.title}</h3>}<p className="mt-3 whitespace-pre-wrap leading-relaxed">{display(conflict.agendaItem.text)}</p></section>
+      </>}
+    </div>
+  </main>;
 }

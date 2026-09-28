@@ -1,5 +1,7 @@
 import postgres from 'postgres';
 import { fetchLegistarAgendaItemsForDataSource } from '../ingestion/legistar.js';
+import { detectConflictsForAgendaItems } from '../detection/detectConflicts.js';
+import { prisma } from '../lib/prisma.js';
 
 const DEFAULT_LOOKBACK_DAYS = 30;
 
@@ -122,7 +124,7 @@ function rowSubsetByColumns(row, insertColumns) {
 
 async function insertAgendaItemRows(sql, rows, agendaItemColumns) {
   if (rows.length === 0) {
-    return 0;
+    return [];
   }
 
   if (!agendaItemColumns.has('legistar_item_id')) {
@@ -145,7 +147,7 @@ async function insertAgendaItemRows(sql, rows, agendaItemColumns) {
     'legistar_item_payload',
   ].filter((column) => agendaItemColumns.has(column));
 
-  let insertedCount = 0;
+  const insertedIds = [];
   const rowChunks = chunk(rows, 100);
 
   for (const rowChunk of rowChunks) {
@@ -153,13 +155,13 @@ async function insertAgendaItemRows(sql, rows, agendaItemColumns) {
     const result = await sql`
       INSERT INTO agenda_items ${sql(values)}
       ON CONFLICT (legistar_item_id) DO NOTHING
-      RETURNING legistar_item_id
+      RETURNING id
     `;
 
-    insertedCount += result.length;
+    insertedIds.push(...result.map((row) => row.id));
   }
 
-  return insertedCount;
+  return insertedIds;
 }
 
 async function runLegistarSyncForCityWithSql(sql, dataSource, agendaItemColumns, options = {}) {
@@ -168,11 +170,16 @@ async function runLegistarSyncForCityWithSql(sql, dataSource, agendaItemColumns,
 
   const { meetings, allItems } = await fetchLegistarAgendaItemsForDataSource(dataSource, lookbackDays);
   const rows = buildInsertRows(dataSource, allItems);
-  const inserted = await insertAgendaItemRows(sql, rows, agendaItemColumns);
+  const insertedAgendaItemIds = await insertAgendaItemRows(sql, rows, agendaItemColumns);
+  const inserted = insertedAgendaItemIds.length;
   const skipped = rows.length - inserted;
+  const detect = options.detectConflictsForAgendaItems ?? detectConflictsForAgendaItems;
+  const detection = inserted > 0
+    ? await detect(insertedAgendaItemIds, options.detectionDependencies)
+    : { inserted: 0, skipped: 0, totalCandidates: 0 };
 
   console.log(
-    `[cron][legistar] city="${cityName}" items_found=${rows.length} inserted=${inserted} skipped=${skipped}`,
+    `[cron][legistar] city="${cityName}" items_found=${rows.length} inserted=${inserted} skipped=${skipped} conflicts=${detection.inserted}`,
   );
 
   return {
@@ -184,6 +191,9 @@ async function runLegistarSyncForCityWithSql(sql, dataSource, agendaItemColumns,
     itemsInserted: inserted,
     skipped,
     itemsSkipped: skipped,
+    insertedAgendaItemIds,
+    conflictsDetected: detection.inserted,
+    conflictsSkipped: detection.skipped,
   };
 }
 
@@ -240,24 +250,96 @@ export async function runNightlyLegistarSync(options = {}) {
       itemsFound: 0,
       inserted: 0,
       skipped: 0,
+      conflictsDetected: 0,
       failures: 0,
     };
 
+    const prismaClient = options.prisma ?? prisma;
+
     for (const source of dataSources) {
+      const startedAt = new Date();
+      let syncLog = null;
       try {
+        if (prismaClient?.syncLog?.create) {
+          syncLog = await prismaClient.syncLog.create({
+            data: {
+              dataSourceId: source.id,
+              sourceType: 'legistar',
+              status: 'running',
+              startedAt,
+            },
+            select: { id: true },
+          });
+        }
+
         const result = await runLegistarSyncForCityWithSql(sql, source, agendaItemColumns, options);
         totals.citiesProcessed += 1;
         totals.itemsFound += result.itemsFound;
         totals.inserted += result.inserted;
         totals.skipped += result.skipped;
+        totals.conflictsDetected += result.conflictsDetected;
+
+        if (prismaClient?.$transaction) {
+          await prismaClient.$transaction([
+            ...(syncLog
+              ? [
+                  prismaClient.syncLog.update({
+                    where: { id: syncLog.id },
+                    data: {
+                      status: 'success',
+                      completedAt: new Date(),
+                      itemsFound: result.itemsFound,
+                      itemsInserted: result.itemsInserted,
+                      itemsSkipped: result.itemsSkipped,
+                      conflictsDetected: result.conflictsDetected,
+                      errors: null,
+                    },
+                  }),
+                ]
+              : []),
+            ...(prismaClient.dataSource?.update
+              ? [
+                  prismaClient.dataSource.update({
+                    where: { id: source.id },
+                    data: { lastSyncedAt: new Date(), lastError: null },
+                  }),
+                ]
+              : []),
+          ]);
+        }
       } catch (error) {
         totals.failures += 1;
         console.error(`[cron][legistar] city="${getCityName(source)}" failed:`, error.message);
+
+        if (prismaClient?.$transaction) {
+          await prismaClient.$transaction([
+            ...(syncLog
+              ? [
+                  prismaClient.syncLog.update({
+                    where: { id: syncLog.id },
+                    data: {
+                      status: 'failed',
+                      completedAt: new Date(),
+                      errors: { message: error.message },
+                    },
+                  }),
+                ]
+              : []),
+            ...(prismaClient.dataSource?.update
+              ? [
+                  prismaClient.dataSource.update({
+                    where: { id: source.id },
+                    data: { lastError: error.message },
+                  }),
+                ]
+              : []),
+          ]);
+        }
       }
     }
 
     console.log(
-      `[cron][legistar] complete cities=${totals.citiesProcessed} failures=${totals.failures} items_found=${totals.itemsFound} inserted=${totals.inserted} skipped=${totals.skipped}`,
+      `[cron][legistar] complete cities=${totals.citiesProcessed} failures=${totals.failures} items_found=${totals.itemsFound} inserted=${totals.inserted} skipped=${totals.skipped} conflicts=${totals.conflictsDetected}`,
     );
 
     return totals;
