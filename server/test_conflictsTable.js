@@ -4,15 +4,15 @@ import test from 'node:test';
 
 const schemaPath = new URL('./prisma/schema.prisma', import.meta.url);
 const migrationPath = new URL(
-  './prisma/migrations/20260902_add_conflicts_table/migration.sql',
+  './prisma/migrations/20260903120000_add_conflicts/migration.sql',
   import.meta.url,
 );
 
-test('ConflictFlag defines the requested conflict fields', async () => {
+test('Conflict defines the requested conflict fields', async () => {
   const schema = await readFile(schemaPath, 'utf8');
-  const model = schema.match(/model ConflictFlag \{([\s\S]*?)\n\}/)?.[1];
+  const model = schema.match(/model Conflict \{([\s\S]*?)\n\}/)?.[1];
 
-  assert.ok(model, 'ConflictFlag model should exist');
+  assert.ok(model, 'Conflict model should exist');
   for (const field of [
     'politicianId',
     'agendaItemId',
