@@ -9,6 +9,7 @@
     "dev": "node --watch src/index.js",
     "run:apify-agendas": "node src/jobs/runApifyAgendaScrape.js",
     "test": "vitest run tests/unit",
+    "benchmark:search": "node scripts/benchmark-search.mjs",
     "test:integration": "vitest run tests/integration",
     "test:storage": "node scripts/test-form700-storage.mjs",
     "smoke:legistar-api": "node scripts/legistar-api-smoke.mjs"
