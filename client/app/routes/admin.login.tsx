@@ -1,25 +1,41 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router";
-import { signInWithPassword } from "../adminAuth";
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export default function AdminLoginPage() {
-  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
-    setSubmitting(true);
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      setError("Admin sign-in is not configured. Set the public Supabase URL and anon key.");
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
-      await signInWithPassword(email.trim(), password);
-      navigate("/admin/upload", { replace: true });
+      const response = await fetch(`${SUPABASE_URL.replace(/\/$/, "")}/auth/v1/token?grant_type=password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+        body: JSON.stringify({ email, password }),
+      });
+      const session = await response.json();
+      if (!response.ok || typeof session.access_token !== "string") {
+        throw new Error(session.msg ?? session.message ?? "Email or password is incorrect.");
+      }
+
+      localStorage.setItem("adminAccessToken", session.access_token);
+      localStorage.setItem("isAdmin", "true");
+      window.location.assign("/admin/sources");
     } catch (loginError) {
-      setError(loginError instanceof Error ? loginError.message : "Unable to sign in.");
+      setError(loginError instanceof Error ? loginError.message : "Sign-in failed.");
     } finally {
-      setSubmitting(false);
+      setIsSubmitting(false);
     }
   }
 
@@ -31,42 +47,42 @@ export default function AdminLoginPage() {
 
         <form className="space-y-4" onSubmit={handleLogin}>
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="email">
-              Email
-            </label>
+            <label htmlFor="admin-email" className="mb-1 block text-sm font-medium text-slate-700">Email</label>
             <input
-              id="email"
+              id="admin-email"
               type="email"
               autoComplete="username"
               required
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="w-full border border-slate-300 px-3 py-2 outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100"
+              placeholder="admin@example.com"
+              className="w-full rounded-lg border border-slate-300 px-4 py-2 outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="password">
-              Password
-            </label>
+            <label htmlFor="admin-password" className="mb-1 block text-sm font-medium text-slate-700">Password</label>
             <input
-              id="password"
+              id="admin-password"
               type="password"
               autoComplete="current-password"
               required
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="w-full border border-slate-300 px-3 py-2 outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100"
+              className="w-full rounded-lg border border-slate-300 px-4 py-2 outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
-          {error && <p className="border-l-4 border-red-700 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">{error}</p>}
-
-          <button type="submit" disabled={submitting} className="w-full bg-emerald-800 px-4 py-2.5 font-semibold text-white hover:bg-emerald-900 disabled:opacity-60">
-            {submitting ? "Signing in..." : "Sign in"}
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full rounded-lg bg-blue-700 px-4 py-2 font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {isSubmitting ? "Signing in..." : "Sign in"}
           </button>
+          {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
         </form>
-      </section>
-    </main>
+      </div>
+    </div>
   );
 }
