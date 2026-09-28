@@ -40,13 +40,13 @@ describe("calculateSeverity", () => {
   }
 );
 
-  it("always returns MEDIUM for real estate", () => {
+  it("uses the disclosed real-estate value for severity", () => {
     const result = calculateSeverity({
       conflictType: CONFLICT_TYPES.REAL_ESTATE,
       amount: 50000,
     });
 
-    expect(result).toBe(SEVERITY.MEDIUM);
+    expect(result).toBe(SEVERITY.HIGH);
   });
 
   it("always returns MEDIUM for business positions", () => {
