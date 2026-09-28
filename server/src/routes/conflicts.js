@@ -2,6 +2,7 @@ import express from "express";
 import { prisma } from "../lib/prisma.js";
 
 const router = express.Router();
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 router.get("/", async (_req, res, next) => {
   try {
