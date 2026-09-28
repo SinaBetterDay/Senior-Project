@@ -1,8 +1,14 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { runLegistarSyncForCity } from "../../src/jobs/nightlySync.js";
 
-const prisma = new PrismaClient();
+const liveDatabaseUrl = process.env.LIVE_LEGISTAR_DATABASE_URL;
+const runLiveIntegration =
+  process.env.RUN_LIVE_LEGISTAR_INTEGRATION === "true" && Boolean(liveDatabaseUrl);
+const describeLive = runLiveIntegration ? describe : describe.skip;
+const prisma = runLiveIntegration
+  ? new PrismaClient({ datasources: { db: { url: liveDatabaseUrl } } })
+  : null;
 
 const TEST_CITY = {
     name: "City of Sacramento",
@@ -10,85 +16,59 @@ const TEST_CITY = {
     clientId: "sacramento"
 };
 
-let jurisdictionId;
-let insertedMeetingIds = [];
+let insertedAgendaItemIds = [];
 
-describe("Legistar ingestion integration", () => {
-    beforeAll(async () => {
-        const jurisdiction = await prisma.jurisdiction.upsert({
-            where: { legistarClientId: TEST_CITY.clientId},
-            update: {
-                name: TEST_CITY.name,
-                type: "CITY",
-            },
-            create: {
-                name: TEST_CITY.name,
-                type: "CITY",
-                legistarClientId: TEST_CITY.clientId
-            }
-        });
-        jurisdictionId = jurisdiction.id;
-    });
-
+describeLive("Legistar ingestion integration", () => {
     afterAll(async () => {
-        if (insertedMeetingIds.length > 0) {
-            await prisma.agendaItem.deleteMany( {
-                where: {
-                    meetingId: { in: insertedMeetingIds }
-           }       
-
-            });
-            await prisma.meeting.deleteMany({
-                where: {
-                    id: { in: insertedMeetingIds }
-                }
-            });
+        if (!prisma) return;
+        try {
+            if (insertedAgendaItemIds.length > 0) {
+                await prisma.conflict.deleteMany({
+                    where: { agendaItemId: { in: insertedAgendaItemIds } },
+                });
+                await prisma.agendaItem.deleteMany({
+                    where: { id: { in: insertedAgendaItemIds } },
+                });
+            }
+        } finally {
+            await prisma.$disconnect();
         }
-        await prisma.$disconnect();
     });
 
     it("ingests real legistar data and avoids duplicates on second run", async () => {
+        const originalDatabaseUrl = process.env.DATABASE_URL;
+        const originalDirectUrl = process.env.DIRECT_URL;
+        process.env.DATABASE_URL = liveDatabaseUrl;
+        process.env.DIRECT_URL = liveDatabaseUrl;
+
+        try {
         const firstRun = await runLegistarSyncForCity({
-            jurisdictionId,
             baseUrl: TEST_CITY.baseUrl,
+            cityName: TEST_CITY.name,
         });
 
         expect(firstRun.meetingFetched).toBeGreaterThan(0);
         expect(firstRun.itemsFound).toBeGreaterThan(0);
+        expect(firstRun.insertedAgendaItemIds).toBeInstanceOf(Array);
+        insertedAgendaItemIds = firstRun.insertedAgendaItemIds;
 
-        const meetings = await prisma.meeting.findMany({
-            where: { jurisdictionId },
-            include: { agendaItems: true }
-
-        });
-        
-        const totalItemsAfterFirstRun = meetings.reduce(
-            (sum, meeting) => sum + meeting.agendaItems.length,
-            0
-        );
-
-        expect(totalItemsAfterFirstRun).toBeGreaterThan(0);
-
-        insertedMeetingIds = meetings.map((m) => m.id);
+        if (insertedAgendaItemIds.length > 0) {
+            const stored = await prisma.agendaItem.count({
+                where: { id: { in: insertedAgendaItemIds } },
+            });
+            expect(stored).toBe(insertedAgendaItemIds.length);
+        }
 
         const secondRun = await runLegistarSyncForCity ({
-            jurisdictionId,
-            baseUrl: TEST_CITY.baseUrl
+            baseUrl: TEST_CITY.baseUrl,
+            cityName: TEST_CITY.name,
         });
 
-        const meetingsAfterSecondRun = await prisma.meeting.findMany({
-            where: {jurisdictionId},
-            include: { agendaItems: true}
-        });
-
-        const totalItemsAfterSecondRun = meetingsAfterSecondRun.reduce(
-            (sum, meeting) => sum + meeting.agendaItems.length,
-            0
-        );
-
-        expect(totalItemsAfterFirstRun).toBe(totalItemsAfterFirstRun);
         expect(secondRun.itemsSkipped).toBeGreaterThanOrEqual(0);
+        expect(secondRun.itemsInserted).toBe(0);
+        } finally {
+            process.env.DATABASE_URL = originalDatabaseUrl;
+            process.env.DIRECT_URL = originalDirectUrl;
+        }
     });
-
-            
- });
+});

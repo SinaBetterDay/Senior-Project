@@ -1,15 +1,15 @@
-// Public API stub — full implementation is Sprint 6.
-// Mounted at /api/politicians in server/src/app.js.
 import express from 'express';
-import { prisma } from "../lib/prisma.js";
+import { prisma } from '../lib/prisma.js';
 
 const router = express.Router();
 
-router.get('/', async (_req, res) => {
+// List all politicians.
+router.get('/', async (_req, res, next) => {
   try {
-    const politicians = await prisma.politician.findMany({ 
-      select: { 
+    const politicians = await prisma.politician.findMany({
+      select: {
         id: true,
+        slug: true,
         fullName: true,
         district: true,
         _count: {
@@ -19,28 +19,28 @@ router.get('/', async (_req, res) => {
         },
       },
       orderBy: {
-        fullName: "asc", // alphabetical list
+        fullName: 'asc',
       },
     });
 
-    const data = politicians.map((politician) => ({ 
+    const data = politicians.map((politician) => ({
       id: politician.id,
+      slug: politician.slug,
       fullName: politician.fullName,
       district: politician.district,
       conflictCount: politician._count.conflicts,
     }));
 
-    res.status(200).json({ data }); 
+    return res.status(200).json({ data });
   } catch (error) {
-    console.error("Failed to fetch politicians:", error);
-
-    res.status(500).json({ 
-      error: "Failed to fetch politicians",
-    });
+    return next(error);
   }
 });
 
-router.get("/:id", async (req, res) => {
+// Look up a politician by UUID.
+// The explicit /id/ prefix prevents this route from conflicting
+// with the slug-based route below.
+router.get('/id/:id', async (req, res, next) => {
   try {
     const politician = await prisma.politician.findUnique({
       where: {
@@ -58,7 +58,7 @@ router.get("/:id", async (req, res) => {
             filerName: true,
           },
           orderBy: {
-            filingYear: "desc",
+            filingYear: 'desc',
           },
         },
         conflicts: {
@@ -79,7 +79,7 @@ router.get("/:id", async (req, res) => {
             },
           },
           orderBy: {
-            detectedAt: "desc",
+            detectedAt: 'desc',
           },
         },
       },
@@ -87,20 +87,70 @@ router.get("/:id", async (req, res) => {
 
     if (!politician) {
       return res.status(404).json({
-        error: "Politician not found",
+        error: 'Politician not found',
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       data: politician,
     });
   } catch (error) {
-    console.error("Failed to fetch politician:", error);
+    return next(error);
+  }
+});
 
-    res.status(500).json({
-      error: "Failed to fetch politician",
+// Preserve main's slug-based politician profile endpoint.
+router.get('/:slug', async (req, res, next) => {
+  try {
+    const politician = await prisma.politician.findUnique({
+      where: {
+        slug: req.params.slug,
+      },
+      select: {
+        id: true,
+        slug: true,
+        fullName: true,
+        officeTitle: true,
+        district: true,
+        jurisdiction: {
+          select: {
+            name: true,
+          },
+        },
+        filings: {
+          orderBy: {
+            filingYear: 'desc',
+          },
+          select: {
+            id: true,
+            filingYear: true,
+            filerName: true,
+          },
+        },
+      },
     });
+
+    if (!politician) {
+      return res.status(404).json({
+        error: 'Politician not found.',
+      });
+    }
+
+    return res.json({
+      data: {
+        id: politician.id,
+        slug: politician.slug,
+        name: politician.fullName,
+        officeTitle: politician.officeTitle,
+        district: politician.district,
+        city: politician.jurisdiction?.name ?? null,
+        filings: politician.filings,
+      },
+    });
+  } catch (error) {
+    return next(error);
   }
 });
 
 export default router;
+

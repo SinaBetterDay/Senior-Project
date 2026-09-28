@@ -1,81 +1,55 @@
+import { getAgendaItems, getMeetings } from "./legistarApi.js";
 
-import { prisma } from "../db.js";
-import { fetchLegistarAgendaItemsForDataSource } from "./legistarApi.js";
+function sourceBaseUrl(source = {}) {
+  return source.legistar_base_url ?? source.legistarBaseUrl ?? source.baseUrl ?? null;
+}
+
+function eventId(meeting = {}) {
+  return meeting.EventId ?? meeting.event_id ?? meeting.id ?? null;
+}
 
 /**
- * Ingest Legistar data for a single data source
+ * Fetch Legistar meetings and their agenda items in the normalized shape used by
+ * the schema-v2 nightly sync. Network work stays here; persistence is owned by
+ * jobs/nightlySync.js.
  */
-async function ingestSingleSource(source) {
-  const { baseUrl, meetings, allItems } =
-    await fetchLegistarAgendaItemsForDataSource(source);
-
-  let insertedCount = 0;
-
-  for (const { item, meeting, meetingId } of allItems) {
-    await prisma.agenda_items.upsert({
-      where: { external_id: String(item.EventItemId) },
-      update: {
-        meeting_id: meetingId,
-        city_id: source.id,
-        raw: item
-      },
-      create: {
-        external_id: String(item.EventItemId),
-        meeting_id: meetingId,
-        city_id: source.id,
-        raw: item
-      }
-    });
-
-    insertedCount++;
+export async function fetchLegistarAgendaItemsForDataSource(source, lookbackDays = 30) {
+  const baseUrl = sourceBaseUrl(source);
+  if (!baseUrl) {
+    throw new Error("Legistar data source is missing legistar_base_url");
   }
+
+  const meetings = await getMeetings(baseUrl);
+  const minimumDate = new Date();
+  minimumDate.setDate(minimumDate.getDate() - lookbackDays);
+
+  const includedMeetings = meetings.filter((meeting) => {
+    const date = new Date(meeting.EventDate ?? meeting.event_date ?? meeting.date);
+    return Number.isNaN(date.valueOf()) || date >= minimumDate;
+  });
+
+  const itemGroups = await Promise.all(
+    includedMeetings.map(async (meeting) => {
+      const meetingId = eventId(meeting);
+      if (meetingId == null) return [];
+      const items = await getAgendaItems(baseUrl, meetingId);
+      return items.map((item) => ({ item, meeting, meetingId }));
+    }),
+  );
 
   return {
     baseUrl,
-    meetingsCount: meetings.length,
-    itemsInserted: insertedCount
+    meetings: includedMeetings,
+    allItems: itemGroups.flat(),
   };
 }
 
 /**
- * Loop through all active Legistar sources.
- * One failing city does NOT stop the rest of the run.
+ * Backwards-compatible entry point for older callers. The canonical pipeline is
+ * now runNightlyLegistarSync, which uses the schema-v2 tables, detects only new
+ * agenda items, and records per-source sync logs.
  */
-export async function runLegistarIngestion() {
-  const sources = await prisma.data_sources.findMany({
-    where: { active: true, type: "legistar" }
-  });
-
-  const results = {
-    startedAt: new Date().toISOString(),
-    successes: [],
-    failures: []
-  };
-
-  for (const source of sources) {
-    console.log(`[Legistar Sync] Starting ${source.city_name}`);
-
-    try {
-      const result = await ingestSingleSource(source);
-
-      results.successes.push({
-        sourceId: source.id,
-        city: source.city_name,
-        ...result
-      });
-
-      console.log(`[Legistar Sync] Success: ${source.city_name}`);
-    } catch (err) {
-      results.failures.push({
-        sourceId: source.id,
-        city: source.city_name,
-        error: err.message
-      });
-
-      console.error(`[Legistar Sync] FAILED: ${source.city_name}`, err);
-    }
-  }
-
-  results.finishedAt = new Date().toISOString();
-  return results;
+export async function runLegistarIngestion(options = {}) {
+  const { runNightlyLegistarSync } = await import("../jobs/nightlySync.js");
+  return runNightlyLegistarSync(options);
 }

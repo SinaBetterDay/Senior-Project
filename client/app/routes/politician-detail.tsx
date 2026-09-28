@@ -53,7 +53,7 @@ export default function PoliticianDetail() {
   useEffect(() => {
     async function fetchPolitician() {
         try {
-            const response = await fetch(`${API_URL}/api/politicians/${id}`);
+            const response = await fetch(`${API_URL}/api/politicians/id/${id}`);
             
             if (!response.ok) {
                 throw new Error("Failed to fetch politician");

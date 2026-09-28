@@ -140,6 +140,10 @@ router.post("/form700", receiveFile, async (req, res, next) => {
       return res.status(400).json({ error: "Missing XLSX upload (multipart field `file`)." });
     }
 
+    if (!/\.xlsx$/i.test(req.file.originalname ?? "")) {
+      return res.status(400).json({ error: "Only .xlsx files are accepted." });
+    }
+
     // Strict: clients must send the XLSX content type (curl: `-F "file=@x.xlsx;type=<mime>"`).
     if (req.file.mimetype !== XLSX_MIME) {
       return res.status(400).json({
@@ -284,9 +288,17 @@ router.post("/form700", receiveFile, async (req, res, next) => {
       return next(err);
     }
 
+    const politician = await prisma.politician.findUnique({
+      where: { id: politicianId },
+      select: { fullName: true, slug: true },
+    });
+
     return res.status(200).json({
       filing_id: filingId,
       politician_id: politicianId,
+      politician: politician
+        ? { name: politician.fullName, slug: politician.slug }
+        : null,
       schedules_parsed: schedulesParsed,
       archived_path: archivedPath,
     });

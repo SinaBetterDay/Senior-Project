@@ -69,7 +69,7 @@ describe("GET /api/politicians", () => {
   });
 });
 
-describe("GET /api/politicians/:id", () => {
+describe("GET /api/politicians/id/:id", () => {
   it("returns a politician with filings and conflicts", async () => {
     prisma.politician.findUnique.mockResolvedValue({
       id: "politician-1",
@@ -102,7 +102,7 @@ describe("GET /api/politicians/:id", () => {
     });
 
     const res = await request(app).get(
-      "/api/politicians/politician-1",
+      "/api/politicians/id/politician-1",
     );
 
     expect(res.status).toBe(200);
@@ -115,7 +115,7 @@ describe("GET /api/politicians/:id", () => {
   prisma.politician.findUnique.mockResolvedValue(null);
 
   const res = await request(app).get(
-    "/api/politicians/missing-politician",
+    "/api/politicians/id/missing-politician",
   );
 
   expect(res.status).toBe(404);

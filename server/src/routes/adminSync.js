@@ -1,5 +1,5 @@
 import express from "express";
-import { syncQueue } from "../queues/syncQueue.js";
+import { runNightlyLegistarSync } from "../jobs/nightlySync.js";
 
 const router = express.Router();
 
@@ -8,16 +8,13 @@ router.post("/run-nightly-sync", async (req, res) => {
 
   console.log(`[Admin API] Manual nightly sync triggered at ${timestamp}`);
 
-  await syncQueue.add("run-sync", {
-    triggeredAt: timestamp,
-    source: "manual-api"
-  });
-
-  res.json({
-    ok: true,
-    message: "Nightly sync job enqueued",
-    triggeredAt: timestamp
-  });
+  try {
+    const result = await runNightlyLegistarSync();
+    return res.json({ ok: true, triggeredAt: timestamp, result });
+  } catch (error) {
+    console.error("[Admin API] Manual nightly sync failed:", error);
+    return res.status(500).json({ error: "Nightly sync failed" });
+  }
 });
 
 export default router;

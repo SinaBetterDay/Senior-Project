@@ -1,4 +1,4 @@
-# FAIR — workspace map (read this first)
+# FAIR — workspace map (read this first) 
 
 **FAIR** = Financial Accountability & Interest Review — a public web app for the **California FPPC** that cross-references **Form 700** financial disclosures with **city council agendas** to surface potential conflicts of interest.
 
