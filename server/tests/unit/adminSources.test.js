@@ -1,6 +1,6 @@
 import express from 'express';
 import request from 'supertest';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../src/lib/auth.js', () => ({
   requireAdmin: (_req, _res, next) => next(),
@@ -15,6 +15,7 @@ vi.mock('../../src/lib/prisma.js', () => ({
 vi.mock('apify-client', () => ({ ApifyClient: vi.fn() }));
 
 import { prisma } from '../../src/lib/prisma.js';
+import { ApifyClient } from 'apify-client';
 import sourcesRouter from '../../src/routes/admin/sources.js';
 
 const app = express();
@@ -25,6 +26,11 @@ const validSource = {
   cityName: 'Sacramento',
   sourceType: 'Legistar',
   legistarBaseUrl: 'https://webapi.legistar.com/v1/sacramento',
+};
+const validApifySource = {
+  cityName: 'Elk Grove',
+  sourceType: 'Apify',
+  apifyActorId: '  fair/agenda-scraper  ',
 };
 
 beforeEach(() => {
@@ -71,6 +77,50 @@ describe('Legistar source validation on save', () => {
 
     expect(response.status).toBe(400);
     expect(response.body.error).toContain('Legistar test request failed (503 Unavailable)');
+    expect(prisma.dataSource.create).not.toHaveBeenCalled();
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
+
+describe('Apify actor validation on save', () => {
+  beforeEach(() => {
+    vi.stubEnv('APIFY_TOKEN', 'account-token');
+  });
+
+  it('checks the actor with the configured account before creating the source', async () => {
+    const actorGet = vi.fn().mockResolvedValue({ id: 'fair/agenda-scraper' });
+    const actor = vi.fn(() => ({ get: actorGet }));
+    ApifyClient.mockImplementation(() => ({ actor }));
+
+    const response = await request(app).post('/api/admin/sources').send(validApifySource);
+
+    expect(response.status).toBe(201);
+    expect(ApifyClient).toHaveBeenCalledWith({ token: 'account-token' });
+    expect(actor).toHaveBeenCalledWith('fair/agenda-scraper');
+    expect(actorGet).toHaveBeenCalledTimes(1);
+    expect(prisma.dataSource.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        cityName: 'Elk Grove',
+        sourceType: 'apify',
+        apifyActorId: 'fair/agenda-scraper',
+      }),
+    });
+  });
+
+  it('rejects actors unavailable to the configured account without creating a source', async () => {
+    const actorGet = vi.fn().mockRejectedValue(new Error('Actor not found or not accessible'));
+    const actor = vi.fn(() => ({ get: actorGet }));
+    ApifyClient.mockImplementation(() => ({ actor }));
+
+    const response = await request(app).post('/api/admin/sources').send(validApifySource);
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain('configured Apify account');
+    expect(response.body.error).toContain('Actor not found or not accessible');
     expect(prisma.dataSource.create).not.toHaveBeenCalled();
   });
 });
