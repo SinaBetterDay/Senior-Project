@@ -8,15 +8,23 @@ vi.mock('../../src/lib/auth.js', () => ({
 
 vi.mock('../../src/lib/prisma.js', () => ({
   prisma: {
-    dataSource: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
-    agendaItem: { deleteMany: vi.fn() },
+    dataSource: { create: vi.fn(), update: vi.fn(), delete: vi.fn(), findUnique: vi.fn() },
+    agendaItem: { deleteMany: vi.fn(), findMany: vi.fn(), createMany: vi.fn() },
+    syncLog: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn() },
+    $transaction: vi.fn((operations) => Promise.all(operations)),
   },
 }));
 
 vi.mock('apify-client', () => ({ ApifyClient: vi.fn() }));
+vi.mock('../../src/ingestion/legistarApi.js', () => ({
+  getMeetings: vi.fn(),
+  getAgendaItems: vi.fn(),
+  getVotes: vi.fn(),
+}));
 
 import { prisma } from '../../src/lib/prisma.js';
 import { ApifyClient } from 'apify-client';
+import { getAgendaItems, getMeetings } from '../../src/ingestion/legistarApi.js';
 import sourcesRouter from '../../src/routes/admin/sources.js';
 
 const app = express();
@@ -40,6 +48,33 @@ beforeEach(() => {
   prisma.dataSource.create.mockImplementation(async ({ data }) => ({ id: 'source-1', ...data }));
   prisma.dataSource.update.mockImplementation(async ({ where, data }) => ({ id: where.id, ...data }));
   prisma.dataSource.delete.mockResolvedValue({ id: 'source-1' });
+  prisma.dataSource.findUnique.mockResolvedValue({
+    id: 'source-1',
+    cityName: 'Sacramento',
+    sourceType: 'legistar',
+    legistarBaseUrl: 'https://webapi.legistar.com/v1/sacramento',
+  });
+  getMeetings.mockResolvedValue([{ EventId: 42, EventDate: '2026-10-01', EventBodyName: 'City Council' }]);
+  getAgendaItems.mockResolvedValue([{
+    EventItemId: 9001,
+    MatterId: 900,
+    EventItemTitle: 'Approve public works contract',
+    EventItemAgendaNumber: '5.1',
+  }]);
+  prisma.agendaItem.createMany.mockResolvedValue({ count: 1 });
+  prisma.syncLog.create.mockResolvedValue({ id: 'sync-1' });
+  prisma.syncLog.update.mockResolvedValue({ id: 'sync-1' });
+  prisma.syncLog.findFirst.mockResolvedValue({
+    id: 'sync-1',
+    status: 'running',
+    startedAt: new Date('2026-09-27T12:00:00.000Z'),
+    completedAt: null,
+    itemsFound: 0,
+    itemsInserted: 0,
+    itemsSkipped: 0,
+    errors: null,
+  });
+  prisma.$transaction.mockImplementation((operations) => Promise.all(operations));
 });
 
 describe('Legistar source validation on save', () => {
@@ -149,5 +184,93 @@ describe('source edit and delete', () => {
     expect(response.status).toBe(204);
     expect(prisma.dataSource.delete).toHaveBeenCalledWith({ where: { id: 'source-1' } });
     expect(prisma.agendaItem.deleteMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('on-demand source sync', () => {
+  it('starts a Legistar ingestion and returns a running sync-log ID', async () => {
+    const response = await request(app).post('/api/admin/sources/source-1/sync');
+
+    expect(response.status).toBe(202);
+    expect(response.body).toEqual({ syncLogId: 'sync-1', status: 'running' });
+    expect(prisma.syncLog.create).toHaveBeenCalledWith({
+      data: { dataSourceId: 'source-1', sourceType: 'legistar', status: 'running' },
+    });
+    await vi.waitFor(() => expect(getMeetings).toHaveBeenCalledWith(
+      'https://webapi.legistar.com/v1/sacramento',
+      50,
+    ));
+    expect(getAgendaItems).toHaveBeenCalledWith('https://webapi.legistar.com/v1/sacramento', 42);
+    await vi.waitFor(() => expect(prisma.agendaItem.createMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({
+        sourceType: 'legistar',
+        legistarItemId: '9001',
+        cityName: 'Sacramento',
+        title: 'Approve public works contract',
+      })],
+      skipDuplicates: true,
+    }));
+  });
+
+  it('returns the persisted status and result counts for a sync run', async () => {
+    prisma.syncLog.findFirst.mockResolvedValue({
+      id: 'sync-1',
+      status: 'success',
+      startedAt: new Date('2026-09-27T12:00:00.000Z'),
+      completedAt: new Date('2026-09-27T12:01:00.000Z'),
+      itemsFound: 5,
+      itemsInserted: 3,
+      itemsSkipped: 2,
+      errors: null,
+    });
+
+    const response = await request(app).get('/api/admin/sources/source-1/sync/sync-1');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      id: 'sync-1',
+      status: 'success',
+      itemsFound: 5,
+      itemsInserted: 3,
+      itemsSkipped: 2,
+      error: null,
+    });
+    expect(prisma.syncLog.findFirst).toHaveBeenCalledWith({
+      where: { id: 'sync-1', dataSourceId: 'source-1' },
+    });
+  });
+
+  it('runs the configured Apify actor and persists its agenda items', async () => {
+    vi.stubEnv('APIFY_TOKEN', 'account-token');
+    prisma.dataSource.findUnique.mockResolvedValue({
+      id: 'source-1',
+      cityName: 'Elk Grove',
+      sourceType: 'apify',
+      apifyActorId: 'fair/agenda-scraper',
+    });
+    const actorCall = vi.fn().mockResolvedValue({ defaultDatasetId: 'dataset-1' });
+    const actor = vi.fn(() => ({ call: actorCall }));
+    const datasetListItems = vi.fn().mockResolvedValue({
+      items: [{ pdf_url: 'https://city.gov/agenda.pdf', title: 'Council agenda', meeting_date: '2026-10-01' }],
+    });
+    const dataset = vi.fn(() => ({ listItems: datasetListItems }));
+    ApifyClient.mockImplementation(() => ({ actor, dataset }));
+    prisma.agendaItem.findMany.mockResolvedValue([]);
+
+    const response = await request(app).post('/api/admin/sources/source-1/sync');
+
+    expect(response.status).toBe(202);
+    await vi.waitFor(() => expect(datasetListItems).toHaveBeenCalledWith({ limit: 1000 }));
+    expect(actor).toHaveBeenCalledWith('fair/agenda-scraper');
+    expect(actorCall).toHaveBeenCalledWith({ cityName: 'Elk Grove' });
+    await vi.waitFor(() => expect(prisma.agendaItem.createMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({
+        sourceType: 'apify',
+        cityId: 'source-1',
+        cityName: 'Elk Grove',
+        title: 'Council agenda',
+        itemText: 'https://city.gov/agenda.pdf',
+      })],
+    }));
   });
 });

@@ -114,19 +114,46 @@ export default function AdminSourcesPage() {
     setSyncingId(id);
 
     try {
+      const token = getAdminAccessToken();
+      const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
       const res = await fetch(`${API_URL}/api/admin/sources/${id}/sync`, {
         method: "POST",
+        headers: authHeaders,
       });
 
       if (!res.ok) {
-        throw new Error("Sync failed");
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? body?.message ?? `Could not start sync (${res.status})`);
       }
 
-      await loadSources();
-      toast.success("Sync completed successfully");
+      const { syncLogId } = await res.json();
+      if (!syncLogId) throw new Error("The server did not return a sync run ID.");
+      setSources((current) => current.map((source) => source.id === id ? { ...source, status: "running" } : source));
+
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+        const statusResponse = await fetch(`${API_URL}/api/admin/sources/${id}/sync/${syncLogId}`, {
+          headers: authHeaders,
+        });
+        const sync = await statusResponse.json().catch(() => null);
+        if (!statusResponse.ok) {
+          throw new Error(sync?.error ?? `Could not check sync status (${statusResponse.status})`);
+        }
+
+        setSources((current) => current.map((source) => source.id === id ? { ...source, status: sync.status } : source));
+        if (sync.status === "failed") throw new Error(sync.error ?? "The source sync failed.");
+        if (sync.status === "success") {
+          toast.success(`Sync complete: ${sync.itemsInserted} new agenda items`);
+          await loadSources();
+          return;
+        }
+      }
+
+      throw new Error("Sync is taking longer than expected. Refresh the source list to check its status.");
     } catch (err) {
       console.error("Sync failed", err);
-      toast.error("Sync failed");
+      toast.error(err instanceof Error ? err.message : "Sync failed");
+      await loadSources();
     } finally {
       setSyncingId(null);
     }
