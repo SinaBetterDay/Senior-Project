@@ -275,6 +275,7 @@ _Update JIRA keys (`FAIR-*`) and calendar dates when your PO locks the 191 sprin
 
 | Topic | Doc |
 |-------|-----|
+| Conflict rules | [`docs/conflict_rules.md`](docs/conflict_rules.md) |
 | Form 700 | [`docs/fair/form700-ingestion/CONTEXT.md`](docs/fair/form700-ingestion/CONTEXT.md) |
 | Agendas | [`docs/fair/agenda-ingestion/CONTEXT.md`](docs/fair/agenda-ingestion/CONTEXT.md) |
 | Entity resolution | [`docs/fair/entity-resolution/CONTEXT.md`](docs/fair/entity-resolution/CONTEXT.md) |

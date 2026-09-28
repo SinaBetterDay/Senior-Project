@@ -1,10 +1,3 @@
-import { startNightlySyncCron } from "./nightlySyncCron.js";
-import { startSyncWorker } from "../workers/syncWorker.js";
-export function scheduleCronJobs() {
-  startNightlySyncCron();
-  startSyncWorker();
-}
-
 import cron from 'node-cron';
 import { runApifyAgendaScrape } from './runApifyAgendaScrape.js';
 import { runNightlyLegistarSync } from './nightlySync.js';
