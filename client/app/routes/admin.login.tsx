@@ -40,11 +40,10 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-100 p-6">
-      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-lg">
-        <h1 className="mb-6 text-center text-3xl font-bold text-slate-900">
-          Admin Login
-        </h1>
+    <main className="flex min-h-screen items-center justify-center bg-slate-100 p-6">
+      <section className="w-full max-w-md border border-slate-300 bg-white p-8 shadow-sm">
+        <p className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-emerald-800">FAIR / Admin</p>
+        <h1 className="mb-6 text-2xl font-semibold text-slate-950">Sign in</h1>
 
         <form className="space-y-4" onSubmit={handleLogin}>
           <div>
