@@ -132,7 +132,9 @@ describe('Apify actor validation on save', () => {
   it('checks the actor with the configured account before creating the source', async () => {
     const actorGet = vi.fn().mockResolvedValue({ id: 'fair/agenda-scraper' });
     const actor = vi.fn(() => ({ get: actorGet }));
-    ApifyClient.mockImplementation(() => ({ actor }));
+    ApifyClient.mockImplementation(function MockApifyClient() {
+      return { actor };
+    });
 
     const response = await request(app).post('/api/admin/sources').send(validApifySource);
 
@@ -152,7 +154,9 @@ describe('Apify actor validation on save', () => {
   it('rejects actors unavailable to the configured account without creating a source', async () => {
     const actorGet = vi.fn().mockRejectedValue(new Error('Actor not found or not accessible'));
     const actor = vi.fn(() => ({ get: actorGet }));
-    ApifyClient.mockImplementation(() => ({ actor }));
+    ApifyClient.mockImplementation(function MockApifyClient() {
+      return { actor };
+    });
 
     const response = await request(app).post('/api/admin/sources').send(validApifySource);
 
@@ -254,7 +258,9 @@ describe('on-demand source sync', () => {
       items: [{ pdf_url: 'https://city.gov/agenda.pdf', title: 'Council agenda', meeting_date: '2026-10-01' }],
     });
     const dataset = vi.fn(() => ({ listItems: datasetListItems }));
-    ApifyClient.mockImplementation(() => ({ actor, dataset }));
+    ApifyClient.mockImplementation(function MockApifyClient() {
+      return { actor, dataset };
+    });
     prisma.agendaItem.findMany.mockResolvedValue([]);
 
     const response = await request(app).post('/api/admin/sources/source-1/sync');
