@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { splitAgendaText, parsePdfAgenda } from '../../src/ingestion/pdfParser.js';
 
 function expectAgendaItem(item, expectedNumber, expectedTextFragment) {
-  expect(item.item_number).toBe(expectedNumber);
-  expect(item.item_text.toLowerCase()).toContain(expectedTextFragment.toLowerCase());
-  expect(item.source_type).toBe('pdf');
+  expect(item.itemNumber).toBe(expectedNumber);
+  expect(item.itemText.toLowerCase()).toContain(expectedTextFragment.toLowerCase());
+  expect(item.sourceType).toBe('pdf');
 }
 
 describe('splitAgendaText', () => {
@@ -28,13 +28,13 @@ describe('splitAgendaText', () => {
     expectAgendaItem(items[4], 'A', 'Discussion of zoning');
   });
 
-  it('tags every item with the supplied city_id and meeting_date', () => {
+  it('tags every item with the supplied city ID and meeting date', () => {
     const items = splitAgendaText('1. Roll call\n2. Adjourn', 'city-123', '2026-04-14');
 
     expect(items).toHaveLength(2);
     for (const item of items) {
-      expect(item.city_id).toBe('city-123');
-      expect(item.meeting_date).toBe('2026-04-14');
+      expect(item.cityId).toBe('city-123');
+      expect(item.meetingDate).toBe('2026-04-14');
     }
   });
 

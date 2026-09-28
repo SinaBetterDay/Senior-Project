@@ -120,6 +120,7 @@ model AgendaItem {
 
   @@index([meetingDate])
   @@index([cityName, meetingDate])
+  @@unique([cityId, meetingDate, itemNumber])
   @@map("agenda_items")
 }
 

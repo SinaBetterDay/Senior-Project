@@ -1,0 +1,53 @@
+name: Scheduled Apify agenda scrape
+
+on:
+  schedule:
+    # 03:10 UTC every Monday. Runs the full Apify -> PDF -> agenda_items path.
+    - cron: '10 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-apify-agendas
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    name: Run Apify agenda scrape
+    runs-on: ubuntu-latest
+    env:
+      APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+      APIFY_ACTOR_ID: ${{ vars.APIFY_ACTOR_ID }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      NODE_ENV: production
+      CRON_ENABLED: "false"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: server
+        run: npm ci
+
+      - name: Generate Prisma client
+        working-directory: server
+        run: npx prisma generate
+
+      - name: Apply database migrations
+        working-directory: server
+        run: npx prisma migrate deploy
+
+      - name: Run Apify agenda ingestion
+        working-directory: server
+        run: npm run run:apify-agendas

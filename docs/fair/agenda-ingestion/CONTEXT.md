@@ -14,6 +14,7 @@ Ingest **city council agendas** for cross-reference with Form 700 data.
 
 - City-specific quirks (URLs, selectors, Legistar endpoints) should be documented next to the code that uses them.
 - Normalize to a **common internal shape** before entity matching (see `../entity-resolution/CONTEXT.md`).
+- `server/src/jobs/runApifyAgendaScrape.js` owns Apify → PDF download → parse → Prisma upsert. Downloads time out after 30 seconds, are limited to 20 MB, and retry safely using `(city_id, meeting_date, item_number)`.
 
 ## Related docs
 

@@ -104,7 +104,7 @@ Senior-Project/
 - **Node.js** 20+
 - **npm** (per-package lockfiles in `client/` and `server/`)
 - **Supabase** project (Postgres + Storage + Auth)
-- Optional: **Railway** CLI, **Vercel** CLI, **Apify** token, **Gemini** API key, **Resend** API key
+- Optional: **Vercel** CLI, **Apify** token, **Gemini** API key, **Resend** API key
 
 ### Quick start (draft)
 
@@ -115,7 +115,8 @@ cd Senior-Project
 
 # 2. Backend
 cd server
-cp .env.example .env    # fill DATABASE_URL, DIRECT_URL, Supabase keys, etc.
+# Create .env with DATABASE_URL, DIRECT_URL, SUPABASE_URL,
+# SUPABASE_SECRET_KEY, APIFY_TOKEN, and APIFY_ACTOR_ID.
 npm install
 npm run dev             # http://localhost:<PORT from src/index.js>
 
@@ -139,12 +140,12 @@ npm run dev             # Vite dev server (default port in terminal output)
 |----------|---------|-------|
 | `DATABASE_URL` | Prisma / server | Supabase session pooler URI |
 | `DIRECT_URL` | Prisma Migrate | Direct Postgres connection |
-| `SUPABASE_*` | server, client | URL, anon key (client), service role (server only) |
+| `SUPABASE_URL` + `SUPABASE_SECRET_KEY` | server | URL and secret/service-role key; the secret key is server-only |
 | `APIFY_ACTOR_ID` | server | e.g. `fppc-csus~fair-agenda-pdf-scraper` |
 | `GEMINI_API_KEY` | server | Entity resolution band only |
 | `RESEND_API_KEY` | server | Weekly admin digests |
 
-See [`server/.env.example`](server/.env.example) and area docs under [`docs/fair/`](docs/fair/README.md).
+The frontend uses its own `client/.env` with `VITE_API_URL`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_ANON_KEY`. Only `VITE_*` values are exposed to the browser; never place `SUPABASE_SECRET_KEY`, database URLs, or API tokens there.
 
 ### _To complete in CSC 191_
 
@@ -192,17 +193,21 @@ npm test    # wire in package.json when Jest/Vitest runner is added
 | Component | Platform | Trigger |
 |-----------|----------|---------|
 | `client/` | **Vercel** | Push to `main` (or preview on PR) |
-| `server/` | **Railway** | CI deploy job on `main` |
+| `server/` | **Railway** | Railway GitHub autodeploy after successful CI |
 | Database | **Supabase** | Migrations via Prisma / SQL in `supabase/migrations/` |
+| Scheduled Legistar sync | **GitHub Actions** | Daily, 02:00 UTC, or manual run |
+| Scheduled Apify PDF ingestion | **GitHub Actions** | Monday, 03:10 UTC, or manual run |
 
-CI workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — Postgres service, `prisma generate` + `prisma migrate deploy`, `npm test`, Railway `railway up` on push to `main`.
+CI workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) uses a temporary Postgres service to run `prisma generate`, `prisma migrate deploy`, and `npm test`. Railway deploys directly from GitHub: configure root directory `server`, pre-deploy command `npx prisma migrate deploy`, start command `npm start`, healthcheck path `/health`, and enable **Wait for CI**. Set `CRON_ENABLED=false` in Railway because scheduled jobs run in GitHub Actions.
+
+Scheduled workflows require GitHub repository secrets `DATABASE_URL`, `DIRECT_URL`, and `APIFY_TOKEN`, plus repository variable `APIFY_ACTOR_ID`. Do not store `RAILWAY_TOKEN`, `RAILWAY_SERVICE_ID`, or other Railway deployment identifiers in GitHub or runtime environment files.
 
 ### _To complete in CSC 191_
 
 - [ ] Vercel project linked to `client/` with env vars for API base URL
-- [ ] Railway service + `RAILWAY_TOKEN` GitHub secret
+- [ ] Railway service linked directly to GitHub with Wait for CI enabled
 - [ ] Supabase production vs staging projects documented
-- [ ] `node-cron` schedule documented (timezone, idempotency, failure alerts)
+- [ ] Scheduled workflow notifications and failure alerts configured
 - [ ] Post-deploy smoke checklist (health route, sample ingestion, admin login)
 
 ---

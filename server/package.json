@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
+    "sync:legistar": "node src/jobs/runNightlyLegistarSync.js",
     "run:apify-agendas": "node src/jobs/runApifyAgendaScrape.js",
     "test": "vitest run tests/unit",
     "benchmark:search": "node scripts/benchmark-search.mjs",

@@ -31,12 +31,14 @@ export function scheduleCronJobs() {
   cron.schedule(schedule, async () => {
     try {
       console.log('[cron] starting Apify agenda scrape');
-      const items = await runApifyAgendaScrape({
+      const result = await runApifyAgendaScrape({
         lookbackDays: process.env.APIFY_LOOKBACK_DAYS
           ? Number(process.env.APIFY_LOOKBACK_DAYS)
           : 14,
       });
-      console.log(`[cron] Apify agenda scrape finished: ${items.length} item(s)`);
+      console.log(
+        `[cron] Apify agenda ingestion finished: ${result.pdfsFetched} PDF(s), ${result.inserted} item(s) inserted, ${result.skipped} skipped`,
+      );
     } catch (err) {
       console.error('[cron] Apify agenda scrape failed:', err);
     }
