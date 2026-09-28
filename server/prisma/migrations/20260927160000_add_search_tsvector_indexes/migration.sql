@@ -1,18 +1,16 @@
 -- Add PostgreSQL full-text search indexes for global search.
+-- Use immutable concatenation so PostgreSQL can create the indexes.
 
 CREATE INDEX "politicians_search_tsvector_idx"
 ON "politicians"
 USING GIN (
   to_tsvector(
     'english',
-    concat_ws(
-      ' ',
-      "full_name",
-      "office_title",
-      "party",
-      "district",
-      "slug"
-    )
+    coalesce("full_name", '')
+      || ' ' || coalesce("office_title", '')
+      || ' ' || coalesce("party", '')
+      || ' ' || coalesce("district", '')
+      || ' ' || coalesce("slug", '')
   )
 );
 
@@ -21,14 +19,11 @@ ON "agenda_items"
 USING GIN (
   to_tsvector(
     'english',
-    concat_ws(
-      ' ',
-      "title",
-      "description",
-      "item_text",
-      "city_name",
-      "body_name"
-    )
+    coalesce("title", '')
+      || ' ' || coalesce("description", '')
+      || ' ' || coalesce("item_text", '')
+      || ' ' || coalesce("city_name", '')
+      || ' ' || coalesce("body_name", '')
   )
 );
 
@@ -37,13 +32,10 @@ ON "conflicts"
 USING GIN (
   to_tsvector(
     'english',
-    concat_ws(
-      ' ',
-      "conflict_type",
-      "severity",
-      "rule_reference",
-      "entity_name",
-      "source_key"
-    )
+    coalesce("conflict_type", '')
+      || ' ' || coalesce("severity", '')
+      || ' ' || coalesce("rule_reference", '')
+      || ' ' || coalesce("entity_name", '')
+      || ' ' || coalesce("source_key", '')
   )
 );

@@ -32,28 +32,22 @@ router.get('/', async (req, res, next) => {
           ts_rank(
             to_tsvector(
               'english',
-              concat_ws(
-                ' ',
-                p.full_name,
-                p.office_title,
-                p.party,
-                p.district,
-                p.slug
-              )
+              coalesce(p.full_name, '')
+  || ' ' || coalesce(p.office_title, '')
+  || ' ' || coalesce(p.party, '')
+  || ' ' || coalesce(p.district, '')
+  || ' ' || coalesce(p.slug, '')
             ),
             websearch_to_tsquery('english', ${query})
           ) AS rank
         FROM politicians p
         WHERE to_tsvector(
           'english',
-          concat_ws(
-            ' ',
-            p.full_name,
-            p.office_title,
-            p.party,
-            p.district,
-            p.slug
-          )
+          coalesce(p.full_name, '')
+  || ' ' || coalesce(p.office_title, '')
+  || ' ' || coalesce(p.party, '')
+  || ' ' || coalesce(p.district, '')
+  || ' ' || coalesce(p.slug, '')
         ) @@ websearch_to_tsquery('english', ${query})
         ORDER BY rank DESC, p.full_name ASC
         LIMIT ${RESULT_LIMIT}
@@ -69,28 +63,23 @@ router.get('/', async (req, res, next) => {
           ts_rank(
             to_tsvector(
               'english',
-              concat_ws(
-                ' ',
-                a.title,
-                a.description,
-                a.item_text,
-                a.city_name,
-                a.body_name
-              )
+              coalesce(a.title, '')
+  || ' ' || coalesce(a.description, '')
+  || ' ' || coalesce(a.item_text, '')
+  || ' ' || coalesce(a.city_name, '')
+  || ' ' || coalesce(a.body_name, '')
             ),
             websearch_to_tsquery('english', ${query})
           ) AS rank
         FROM agenda_items a
         WHERE to_tsvector(
           'english',
-          concat_ws(
-            ' ',
-            a.title,
-            a.description,
-            a.item_text,
-            a.city_name,
-            a.body_name
-          )
+          coalesce(a.title, '')
+  || ' ' || coalesce(a.description, '')
+  || ' ' || coalesce(a.item_text, '')
+  || ' ' || coalesce(a.city_name, '')
+  || ' ' || coalesce(a.body_name, '')
+        
         ) @@ websearch_to_tsquery('english', ${query})
         ORDER BY rank DESC, a.meeting_date DESC NULLS LAST
         LIMIT ${RESULT_LIMIT}
@@ -110,19 +99,16 @@ router.get('/', async (req, res, next) => {
           ts_rank(
             to_tsvector(
               'english',
-              concat_ws(
-                ' ',
-                c.conflict_type,
-                c.severity,
-                c.rule_reference,
-                c.entity_name,
-                c.source_key,
-                p.full_name,
-                p.office_title,
-                a.title,
-                a.description,
-                a.item_text
-              )
+              coalesce(c.conflict_type, '')
+  || ' ' || coalesce(c.severity, '')
+  || ' ' || coalesce(c.rule_reference, '')
+  || ' ' || coalesce(c.entity_name, '')
+  || ' ' || coalesce(c.source_key, '')
+  || ' ' || coalesce(p.full_name, '')
+  || ' ' || coalesce(p.office_title, '')
+  || ' ' || coalesce(a.title, '')
+  || ' ' || coalesce(a.description, '')
+  || ' ' || coalesce(a.item_text, '')
             ),
             websearch_to_tsquery('english', ${query})
           ) AS rank
@@ -131,19 +117,16 @@ router.get('/', async (req, res, next) => {
         JOIN agenda_items a ON a.id = c.agenda_item_id
         WHERE to_tsvector(
           'english',
-          concat_ws(
-            ' ',
-            c.conflict_type,
-            c.severity,
-            c.rule_reference,
-            c.entity_name,
-            c.source_key,
-            p.full_name,
-            p.office_title,
-            a.title,
-            a.description,
-            a.item_text
-          )
+          coalesce(c.conflict_type, '')
+  || ' ' || coalesce(c.severity, '')
+  || ' ' || coalesce(c.rule_reference, '')
+  || ' ' || coalesce(c.entity_name, '')
+  || ' ' || coalesce(c.source_key, '')
+  || ' ' || coalesce(p.full_name, '')
+  || ' ' || coalesce(p.office_title, '')
+  || ' ' || coalesce(a.title, '')
+  || ' ' || coalesce(a.description, '')
+  || ' ' || coalesce(a.item_text, '')
         ) @@ websearch_to_tsquery('english', ${query})
         ORDER BY rank DESC, c.detected_at DESC
         LIMIT ${RESULT_LIMIT}
