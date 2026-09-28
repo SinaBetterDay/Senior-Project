@@ -8,7 +8,8 @@ vi.mock('../../src/lib/auth.js', () => ({
 
 vi.mock('../../src/lib/prisma.js', () => ({
   prisma: {
-    dataSource: { create: vi.fn() },
+    dataSource: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    agendaItem: { deleteMany: vi.fn() },
   },
 }));
 
@@ -37,6 +38,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('fetch', vi.fn());
   prisma.dataSource.create.mockImplementation(async ({ data }) => ({ id: 'source-1', ...data }));
+  prisma.dataSource.update.mockImplementation(async ({ where, data }) => ({ id: where.id, ...data }));
+  prisma.dataSource.delete.mockResolvedValue({ id: 'source-1' });
 });
 
 describe('Legistar source validation on save', () => {
@@ -122,5 +125,29 @@ describe('Apify actor validation on save', () => {
     expect(response.body.error).toContain('configured Apify account');
     expect(response.body.error).toContain('Actor not found or not accessible');
     expect(prisma.dataSource.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('source edit and delete', () => {
+  it('updates a source after validating its new Legistar URL', async () => {
+    fetch.mockResolvedValue({ ok: true, json: async () => [] });
+
+    const response = await request(app)
+      .put('/api/admin/sources/source-1')
+      .send({ ...validSource, cityName: 'West Sacramento' });
+
+    expect(response.status).toBe(200);
+    expect(prisma.dataSource.update).toHaveBeenCalledWith({
+      where: { id: 'source-1' },
+      data: expect.objectContaining({ cityName: 'West Sacramento', sourceType: 'legistar' }),
+    });
+  });
+
+  it('deletes only the source configuration and leaves ingested agenda items untouched', async () => {
+    const response = await request(app).delete('/api/admin/sources/source-1');
+
+    expect(response.status).toBe(204);
+    expect(prisma.dataSource.delete).toHaveBeenCalledWith({ where: { id: 'source-1' } });
+    expect(prisma.agendaItem.deleteMany).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router";
-import { Menu, Plus, Search, User, X } from "lucide-react";
+import { Menu, Pencil, Plus, Search, Trash2, User, X } from "lucide-react";
 import { toast } from "react-hot-toast";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
@@ -9,6 +9,8 @@ type Source = {
   id: string;
   cityName: string;
   sourceType: "legistar" | "apify" | "pdf" | "Legistar" | "Apify" | "PDF";
+  legistarBaseUrl?: string | null;
+  apifyActorId?: string | null;
   lastSyncTime: string | null;
   totalAgendaItems: number;
   lastError: string | null;
@@ -57,7 +59,9 @@ export default function AdminSourcesPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [isAdding, setIsAdding] = useState(false);
+  const [editingSourceId, setEditingSourceId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
   const [cityName, setCityName] = useState("");
   const [sourceType, setSourceType] = useState<"Legistar" | "Apify">("Legistar");
@@ -128,15 +132,34 @@ export default function AdminSourcesPage() {
     }
   }
 
+  function resetSourceForm() {
+    setEditingSourceId(null);
+    setCityName("");
+    setSourceType("Legistar");
+    setLegistarBaseUrl("");
+    setApifyActorId("");
+    setAddError(null);
+  }
+
+  function startEditingSource(source: Source) {
+    setEditingSourceId(source.id);
+    setCityName(source.cityName);
+    setSourceType(source.sourceType.toLowerCase() === "apify" ? "Apify" : "Legistar");
+    setLegistarBaseUrl(source.legistarBaseUrl ?? "");
+    setApifyActorId(source.apifyActorId ?? "");
+    setAddError(null);
+    setShowAddForm(true);
+  }
+
   async function handleAddSource(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setIsAdding(true);
+    setIsSaving(true);
     setAddError(null);
 
     try {
       const token = getAdminAccessToken();
-      const res = await fetch(`${API_URL}/api/admin/sources`, {
-        method: "POST",
+      const res = await fetch(`${API_URL}/api/admin/sources${editingSourceId ? `/${editingSourceId}` : ""}`, {
+        method: editingSourceId ? "PUT" : "POST",
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -150,19 +173,45 @@ export default function AdminSourcesPage() {
 
       if (!res.ok) {
         const body = await res.json().catch(() => null);
-        throw new Error(body?.error ?? body?.message ?? `Failed to add source (${res.status})`);
+        throw new Error(body?.error ?? body?.message ?? `Failed to ${editingSourceId ? "update" : "add"} source (${res.status})`);
       }
 
-      setCityName("");
-      setLegistarBaseUrl("");
-      setApifyActorId("");
+      const wasEditing = editingSourceId !== null;
+      resetSourceForm();
       setShowAddForm(false);
-      toast.success("Source added");
+      toast.success(wasEditing ? "Source updated" : "Source added");
       await loadSources();
     } catch (error) {
-      setAddError(error instanceof Error ? error.message : "Failed to add source.");
+      setAddError(error instanceof Error ? error.message : "Failed to save source.");
     } finally {
-      setIsAdding(false);
+      setIsSaving(false);
+    }
+  }
+
+  async function handleDeleteSource(source: Source) {
+    const confirmed = window.confirm(
+      `Delete the ${source.cityName} source? Existing agenda items will be preserved.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingId(source.id);
+    try {
+      const token = getAdminAccessToken();
+      const res = await fetch(`${API_URL}/api/admin/sources/${source.id}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? body?.message ?? `Failed to delete source (${res.status})`);
+      }
+
+      toast.success("Source deleted; ingested agenda items were kept");
+      await loadSources();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete source.");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -221,8 +270,13 @@ export default function AdminSourcesPage() {
             <button
               type="button"
               onClick={() => {
-                setShowAddForm((isOpen) => !isOpen);
-                setAddError(null);
+                if (showAddForm) {
+                  resetSourceForm();
+                  setShowAddForm(false);
+                } else {
+                  resetSourceForm();
+                  setShowAddForm(true);
+                }
               }}
               aria-expanded={showAddForm}
               className="inline-flex items-center gap-2 rounded-md bg-[#3f4c97] px-4 py-2 font-semibold text-white transition hover:bg-[#334085]"
@@ -234,7 +288,7 @@ export default function AdminSourcesPage() {
 
           {showAddForm && (
             <form onSubmit={handleAddSource} className="mb-8 border-y border-[#8c97b8] bg-white px-5 py-6">
-              <h3 className="mb-5 text-lg font-semibold text-gray-900">New ingestion source</h3>
+              <h3 className="mb-5 text-lg font-semibold text-gray-900">{editingSourceId ? "Edit ingestion source" : "New ingestion source"}</h3>
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <label htmlFor="source-city" className="mb-1 block text-sm font-medium text-gray-800">City name</label>
@@ -297,7 +351,7 @@ export default function AdminSourcesPage() {
                   disabled={isAdding}
                   className="rounded-md bg-[#3f4c97] px-5 py-2 font-semibold text-white transition hover:bg-[#334085] disabled:opacity-50"
                 >
-                  {isAdding ? "Adding..." : "Save source"}
+                  {isSaving ? "Saving..." : editingSourceId ? "Save changes" : "Save source"}
                 </button>
               </div>
             </form>
@@ -356,13 +410,35 @@ export default function AdminSourcesPage() {
                             )}
                           </td>
                           <td className="px-4 py-4">
-                            <button
-                              onClick={() => handleSync(source.id)}
-                              disabled={syncingId === source.id}
-                              className="rounded-full bg-[#3f4c97] px-5 py-2 font-semibold text-white transition hover:bg-[#334085] disabled:opacity-50"
-                            >
-                              {syncingId === source.id ? "Syncing..." : "Sync now"}
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                title="Edit source"
+                                aria-label={`Edit ${source.cityName} source`}
+                                onClick={() => startEditingSource(source)}
+                                className="rounded-md border border-gray-300 p-2 text-gray-700 transition hover:bg-gray-100"
+                              >
+                                <Pencil size={16} aria-hidden="true" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleSync(source.id)}
+                                disabled={syncingId === source.id}
+                                className="rounded-md bg-[#3f4c97] px-3 py-2 font-semibold text-white transition hover:bg-[#334085] disabled:opacity-50"
+                              >
+                                {syncingId === source.id ? "Syncing..." : "Sync now"}
+                              </button>
+                              <button
+                                type="button"
+                                title="Delete source"
+                                aria-label={`Delete ${source.cityName} source`}
+                                onClick={() => handleDeleteSource(source)}
+                                disabled={deletingId === source.id}
+                                className="rounded-md border border-red-200 p-2 text-red-700 transition hover:bg-red-50 disabled:opacity-50"
+                              >
+                                <Trash2 size={16} aria-hidden="true" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))
