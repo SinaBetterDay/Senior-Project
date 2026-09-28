@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router";
-import { Menu, Search, User } from "lucide-react";
+import { Menu, Plus, Search, User, X } from "lucide-react";
 import { toast } from "react-hot-toast";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
@@ -56,6 +56,13 @@ export default function AdminSourcesPage() {
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [cityName, setCityName] = useState("");
+  const [sourceType, setSourceType] = useState<"Legistar" | "Apify">("Legistar");
+  const [legistarBaseUrl, setLegistarBaseUrl] = useState("");
+  const [apifyActorId, setApifyActorId] = useState("");
 
   async function loadSources() {
     try {
@@ -121,6 +128,44 @@ export default function AdminSourcesPage() {
     }
   }
 
+  async function handleAddSource(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsAdding(true);
+    setAddError(null);
+
+    try {
+      const token = getAdminAccessToken();
+      const res = await fetch(`${API_URL}/api/admin/sources`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          cityName,
+          sourceType,
+          ...(sourceType === "Legistar" ? { legistarBaseUrl } : { apifyActorId }),
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? body?.message ?? `Failed to add source (${res.status})`);
+      }
+
+      setCityName("");
+      setLegistarBaseUrl("");
+      setApifyActorId("");
+      setShowAddForm(false);
+      toast.success("Source added");
+      await loadSources();
+    } catch (error) {
+      setAddError(error instanceof Error ? error.message : "Failed to add source.");
+    } finally {
+      setIsAdding(false);
+    }
+  }
+
   if (isAdmin === null) {
     return null;
   }
@@ -171,6 +216,92 @@ export default function AdminSourcesPage() {
               Last refreshed: {lastRefreshed.toLocaleTimeString()}
             </p>
           </div>
+
+          <div className="mb-6 flex justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                setShowAddForm((isOpen) => !isOpen);
+                setAddError(null);
+              }}
+              aria-expanded={showAddForm}
+              className="inline-flex items-center gap-2 rounded-md bg-[#3f4c97] px-4 py-2 font-semibold text-white transition hover:bg-[#334085]"
+            >
+              {showAddForm ? <X size={18} aria-hidden="true" /> : <Plus size={18} aria-hidden="true" />}
+              {showAddForm ? "Close" : "Add source"}
+            </button>
+          </div>
+
+          {showAddForm && (
+            <form onSubmit={handleAddSource} className="mb-8 border-y border-[#8c97b8] bg-white px-5 py-6">
+              <h3 className="mb-5 text-lg font-semibold text-gray-900">New ingestion source</h3>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label htmlFor="source-city" className="mb-1 block text-sm font-medium text-gray-800">City name</label>
+                  <input
+                    id="source-city"
+                    name="cityName"
+                    value={cityName}
+                    onChange={(event) => setCityName(event.target.value)}
+                    autoComplete="address-level2"
+                    required
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 outline-none focus:border-[#3f4c97] focus:ring-2 focus:ring-[#3f4c97]/20"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="source-type" className="mb-1 block text-sm font-medium text-gray-800">Source type</label>
+                  <select
+                    id="source-type"
+                    name="sourceType"
+                    value={sourceType}
+                    onChange={(event) => setSourceType(event.target.value as "Legistar" | "Apify")}
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 outline-none focus:border-[#3f4c97] focus:ring-2 focus:ring-[#3f4c97]/20"
+                  >
+                    <option value="Legistar">Legistar</option>
+                    <option value="Apify">Apify</option>
+                  </select>
+                </div>
+                {sourceType === "Legistar" ? (
+                  <div className="md:col-span-2">
+                    <label htmlFor="source-legistar-url" className="mb-1 block text-sm font-medium text-gray-800">Legistar base URL</label>
+                    <input
+                      id="source-legistar-url"
+                      name="legistarBaseUrl"
+                      type="url"
+                      value={legistarBaseUrl}
+                      onChange={(event) => setLegistarBaseUrl(event.target.value)}
+                      placeholder="https://webapi.legistar.com/v1/sacramento"
+                      required
+                      className="w-full rounded-md border border-gray-300 px-3 py-2 outline-none focus:border-[#3f4c97] focus:ring-2 focus:ring-[#3f4c97]/20"
+                    />
+                  </div>
+                ) : (
+                  <div className="md:col-span-2">
+                    <label htmlFor="source-apify-actor" className="mb-1 block text-sm font-medium text-gray-800">Apify actor ID</label>
+                    <input
+                      id="source-apify-actor"
+                      name="apifyActorId"
+                      value={apifyActorId}
+                      onChange={(event) => setApifyActorId(event.target.value)}
+                      placeholder="username/actor-name"
+                      required
+                      className="w-full rounded-md border border-gray-300 px-3 py-2 outline-none focus:border-[#3f4c97] focus:ring-2 focus:ring-[#3f4c97]/20"
+                    />
+                  </div>
+                )}
+              </div>
+              {addError && <p role="alert" className="mt-4 text-sm font-medium text-red-700">{addError}</p>}
+              <div className="mt-5 flex justify-end">
+                <button
+                  type="submit"
+                  disabled={isAdding}
+                  className="rounded-md bg-[#3f4c97] px-5 py-2 font-semibold text-white transition hover:bg-[#334085] disabled:opacity-50"
+                >
+                  {isAdding ? "Adding..." : "Save source"}
+                </button>
+              </div>
+            </form>
+          )}
 
           {loadError && (
             <div className="mb-6 rounded-xl bg-red-100 px-4 py-3 text-sm font-medium text-red-800">
