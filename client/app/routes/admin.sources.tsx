@@ -1,22 +1,54 @@
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router";
-import { Menu, Search, User } from "lucide-react";
+import { Menu, Pencil, Plus, Search, Trash2, User, X } from "lucide-react";
 import { toast } from "react-hot-toast";
-
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
+import { AdminGuard, AdminNav } from "../adminComponents";
+import { adminFetch } from "../adminAuth";
 
 type Source = {
   id: string;
   cityName: string;
-  sourceType: "Legistar" | "Apify" | "PDF";
+  sourceType: "legistar" | "apify" | "pdf" | "Legistar" | "Apify" | "PDF";
+  legistarBaseUrl?: string | null;
+  apifyActorId?: string | null;
   lastSyncTime: string | null;
   totalAgendaItems: number;
   lastError: string | null;
+  status: "ready" | "running" | "success" | "failed" | "disabled";
 };
+
+function getAdminAccessToken() {
+  const savedToken = localStorage.getItem("adminAccessToken");
+  if (savedToken) return savedToken;
+
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    if (!key?.startsWith("sb-") || !key.endsWith("-auth-token")) continue;
+
+    try {
+      const session = JSON.parse(localStorage.getItem(key) ?? "null");
+      if (typeof session?.access_token === "string") return session.access_token;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
 
 function formatDate(date: string | null) {
   if (!date) return "Never";
   return new Date(date).toLocaleString();
+}
+
+function statusLabel(status: Source["status"]) {
+  return status === "ready" ? "Ready" : status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+function statusClass(status: Source["status"]) {
+  if (status === "running") return "bg-blue-100 text-blue-800";
+  if (status === "success" || status === "ready") return "bg-green-100 text-green-800";
+  if (status === "failed") return "bg-red-100 text-red-800";
+  return "bg-gray-100 text-gray-700";
 }
 
 export default function AdminSourcesPage() {
@@ -26,22 +58,35 @@ export default function AdminSourcesPage() {
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [editingSourceId, setEditingSourceId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [cityName, setCityName] = useState("");
+  const [sourceType, setSourceType] = useState<"Legistar" | "Apify">("Legistar");
+  const [legistarBaseUrl, setLegistarBaseUrl] = useState("");
+  const [apifyActorId, setApifyActorId] = useState("");
 
   async function loadSources() {
     try {
       setLoadError(null);
 
-      const res = await fetch(`${API_URL}/api/admin/sources`);
+      const token = getAdminAccessToken();
+      const res = await fetch(`${API_URL}/api/admin/sources`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
 
       if (!res.ok) {
-        throw new Error("Failed to fetch sources");
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? body?.message ?? `Failed to fetch sources (${res.status})`);
       }
 
       const data = await res.json();
       setSources(data);
     } catch (err) {
       console.error("Failed to fetch sources", err);
-      setLoadError("Failed to load source data.");
+      setLoadError(err instanceof Error ? err.message : "Failed to load source data.");
     } finally {
       setLoading(false);
       setLastRefreshed(new Date());
@@ -49,13 +94,6 @@ export default function AdminSourcesPage() {
   }
 
   useEffect(() => {
-    const adminStatus = localStorage.getItem("isAdmin") === "true";
-    setIsAdmin(adminStatus);
-  }, []);
-
-  useEffect(() => {
-    if (!isAdmin) return;
-
     loadSources();
 
     const interval = setInterval(() => {
@@ -63,27 +101,137 @@ export default function AdminSourcesPage() {
     }, 30000);
 
     return () => clearInterval(interval);
-  }, [isAdmin]);
+  }, []);
 
   async function handleSync(id: string) {
     setSyncingId(id);
 
     try {
+      const token = getAdminAccessToken();
+      const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
       const res = await fetch(`${API_URL}/api/admin/sources/${id}/sync`, {
         method: "POST",
+        headers: authHeaders,
       });
 
       if (!res.ok) {
-        throw new Error("Sync failed");
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? body?.message ?? `Could not start sync (${res.status})`);
       }
 
-      await loadSources();
-      toast.success("Sync completed successfully");
+      const { syncLogId } = await res.json();
+      if (!syncLogId) throw new Error("The server did not return a sync run ID.");
+      setSources((current) => current.map((source) => source.id === id ? { ...source, status: "running" } : source));
+
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+        const statusResponse = await fetch(`${API_URL}/api/admin/sources/${id}/sync/${syncLogId}`, {
+          headers: authHeaders,
+        });
+        const sync = await statusResponse.json().catch(() => null);
+        if (!statusResponse.ok) {
+          throw new Error(sync?.error ?? `Could not check sync status (${statusResponse.status})`);
+        }
+
+        setSources((current) => current.map((source) => source.id === id ? { ...source, status: sync.status } : source));
+        if (sync.status === "failed") throw new Error(sync.error ?? "The source sync failed.");
+        if (sync.status === "success") {
+          toast.success(`Sync complete: ${sync.itemsInserted} new agenda items`);
+          await loadSources();
+          return;
+        }
+      }
+
+      throw new Error("Sync is taking longer than expected. Refresh the source list to check its status.");
     } catch (err) {
       console.error("Sync failed", err);
-      toast.error("Sync failed");
+      toast.error(err instanceof Error ? err.message : "Sync failed");
+      await loadSources();
     } finally {
       setSyncingId(null);
+    }
+  }
+
+  function resetSourceForm() {
+    setEditingSourceId(null);
+    setCityName("");
+    setSourceType("Legistar");
+    setLegistarBaseUrl("");
+    setApifyActorId("");
+    setAddError(null);
+  }
+
+  function startEditingSource(source: Source) {
+    setEditingSourceId(source.id);
+    setCityName(source.cityName);
+    setSourceType(source.sourceType.toLowerCase() === "apify" ? "Apify" : "Legistar");
+    setLegistarBaseUrl(source.legistarBaseUrl ?? "");
+    setApifyActorId(source.apifyActorId ?? "");
+    setAddError(null);
+    setShowAddForm(true);
+  }
+
+  async function handleAddSource(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSaving(true);
+    setAddError(null);
+
+    try {
+      const token = getAdminAccessToken();
+      const res = await fetch(`${API_URL}/api/admin/sources${editingSourceId ? `/${editingSourceId}` : ""}`, {
+        method: editingSourceId ? "PUT" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          cityName,
+          sourceType,
+          ...(sourceType === "Legistar" ? { legistarBaseUrl } : { apifyActorId }),
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? body?.message ?? `Failed to ${editingSourceId ? "update" : "add"} source (${res.status})`);
+      }
+
+      const wasEditing = editingSourceId !== null;
+      resetSourceForm();
+      setShowAddForm(false);
+      toast.success(wasEditing ? "Source updated" : "Source added");
+      await loadSources();
+    } catch (error) {
+      setAddError(error instanceof Error ? error.message : "Failed to save source.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleDeleteSource(source: Source) {
+    const confirmed = window.confirm(
+      `Delete the ${source.cityName} source? Existing agenda items will be preserved.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingId(source.id);
+    try {
+      const token = getAdminAccessToken();
+      const res = await fetch(`${API_URL}/api/admin/sources/${source.id}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? body?.message ?? `Failed to delete source (${res.status})`);
+      }
+
+      toast.success("Source deleted; ingested agenda items were kept");
+      await loadSources();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete source.");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -97,31 +245,7 @@ export default function AdminSourcesPage() {
 
   return (
     <div className="min-h-screen bg-[#ececec] text-[#1f1f1f]">
-      <header className="bg-[#3f4c97] text-white">
-        <div className="flex items-center justify-between px-6 py-5 md:px-10">
-          <div className="flex items-center gap-6">
-            <button
-              type="button"
-              className="rounded-md p-1 transition hover:bg-white/10"
-            >
-              <Menu size={30} />
-            </button>
-
-            <div className="leading-tight">
-              <p className="text-xs uppercase tracking-wide">California</p>
-              <h1 className="text-xl font-semibold md:text-3xl">
-                FAIR POLITICAL PRACTICES COMMISSION
-              </h1>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-6">
-            <Search size={30} />
-            <User size={30} />
-          </div>
-        </div>
-        <div className="h-2 bg-[#d3b11f]" />
-      </header>
+      <AdminNav title="Sources dashboard" />
 
       <main className="px-4 py-10 md:px-10">
         <div className="mx-auto max-w-6xl rounded-[2rem] bg-[#d9e3fb] px-6 py-8 shadow-sm md:px-10">
@@ -137,6 +261,97 @@ export default function AdminSourcesPage() {
               Last refreshed: {lastRefreshed.toLocaleTimeString()}
             </p>
           </div>
+
+          <div className="mb-6 flex justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                if (showAddForm) {
+                  resetSourceForm();
+                  setShowAddForm(false);
+                } else {
+                  resetSourceForm();
+                  setShowAddForm(true);
+                }
+              }}
+              aria-expanded={showAddForm}
+              className="inline-flex items-center gap-2 rounded-md bg-[#3f4c97] px-4 py-2 font-semibold text-white transition hover:bg-[#334085]"
+            >
+              {showAddForm ? <X size={18} aria-hidden="true" /> : <Plus size={18} aria-hidden="true" />}
+              {showAddForm ? "Close" : "Add source"}
+            </button>
+          </div>
+
+          {showAddForm && (
+            <form onSubmit={handleAddSource} className="mb-8 border-y border-[#8c97b8] bg-white px-5 py-6">
+              <h3 className="mb-5 text-lg font-semibold text-gray-900">{editingSourceId ? "Edit ingestion source" : "New ingestion source"}</h3>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label htmlFor="source-city" className="mb-1 block text-sm font-medium text-gray-800">City name</label>
+                  <input
+                    id="source-city"
+                    name="cityName"
+                    value={cityName}
+                    onChange={(event) => setCityName(event.target.value)}
+                    autoComplete="address-level2"
+                    required
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 outline-none focus:border-[#3f4c97] focus:ring-2 focus:ring-[#3f4c97]/20"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="source-type" className="mb-1 block text-sm font-medium text-gray-800">Source type</label>
+                  <select
+                    id="source-type"
+                    name="sourceType"
+                    value={sourceType}
+                    onChange={(event) => setSourceType(event.target.value as "Legistar" | "Apify")}
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 outline-none focus:border-[#3f4c97] focus:ring-2 focus:ring-[#3f4c97]/20"
+                  >
+                    <option value="Legistar">Legistar</option>
+                    <option value="Apify">Apify</option>
+                  </select>
+                </div>
+                {sourceType === "Legistar" ? (
+                  <div className="md:col-span-2">
+                    <label htmlFor="source-legistar-url" className="mb-1 block text-sm font-medium text-gray-800">Legistar base URL</label>
+                    <input
+                      id="source-legistar-url"
+                      name="legistarBaseUrl"
+                      type="url"
+                      value={legistarBaseUrl}
+                      onChange={(event) => setLegistarBaseUrl(event.target.value)}
+                      placeholder="https://webapi.legistar.com/v1/sacramento"
+                      required
+                      className="w-full rounded-md border border-gray-300 px-3 py-2 outline-none focus:border-[#3f4c97] focus:ring-2 focus:ring-[#3f4c97]/20"
+                    />
+                  </div>
+                ) : (
+                  <div className="md:col-span-2">
+                    <label htmlFor="source-apify-actor" className="mb-1 block text-sm font-medium text-gray-800">Apify actor ID</label>
+                    <input
+                      id="source-apify-actor"
+                      name="apifyActorId"
+                      value={apifyActorId}
+                      onChange={(event) => setApifyActorId(event.target.value)}
+                      placeholder="username/actor-name"
+                      required
+                      className="w-full rounded-md border border-gray-300 px-3 py-2 outline-none focus:border-[#3f4c97] focus:ring-2 focus:ring-[#3f4c97]/20"
+                    />
+                  </div>
+                )}
+              </div>
+              {addError && <p role="alert" className="mt-4 text-sm font-medium text-red-700">{addError}</p>}
+              <div className="mt-5 flex justify-end">
+                <button
+                  type="submit"
+                  disabled={isAdding}
+                  className="rounded-md bg-[#3f4c97] px-5 py-2 font-semibold text-white transition hover:bg-[#334085] disabled:opacity-50"
+                >
+                  {isSaving ? "Saving..." : editingSourceId ? "Save changes" : "Save source"}
+                </button>
+              </div>
+            </form>
+          )}
 
           {loadError && (
             <div className="mb-6 rounded-xl bg-red-100 px-4 py-3 text-sm font-medium text-red-800">
@@ -158,6 +373,7 @@ export default function AdminSourcesPage() {
                       <th className="px-4 py-4 text-left font-semibold">Source Type</th>
                       <th className="px-4 py-4 text-left font-semibold">Last Sync</th>
                       <th className="px-4 py-4 text-left font-semibold">Agenda Items</th>
+                      <th className="px-4 py-4 text-left font-semibold">Status</th>
                       <th className="px-4 py-4 text-left font-semibold">Last Error</th>
                       <th className="px-4 py-4 text-left font-semibold">Action</th>
                     </tr>
@@ -166,20 +382,22 @@ export default function AdminSourcesPage() {
                   <tbody className="bg-white">
                     {sources.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                        <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
                           No data sources found.
                         </td>
                       </tr>
                     ) : (
                       sources.map((source, index) => (
-                        <tr
-                          key={source.id}
-                          className={index !== sources.length - 1 ? "border-b border-gray-200" : ""}
-                        >
+                        <tr key={source.id} className={index !== sources.length - 1 ? "border-b border-gray-200" : ""}>
                           <td className="px-4 py-4">{source.cityName}</td>
-                          <td className="px-4 py-4">{source.sourceType}</td>
+                          <td className="px-4 py-4 capitalize">{source.sourceType}</td>
                           <td className="px-4 py-4">{formatDate(source.lastSyncTime)}</td>
                           <td className="px-4 py-4">{source.totalAgendaItems}</td>
+                          <td className="px-4 py-4">
+                            <span className={`inline-flex rounded px-2 py-1 text-xs font-semibold ${statusClass(source.status)}`}>
+                              {statusLabel(source.status)}
+                            </span>
+                          </td>
                           <td className="px-4 py-4">
                             {source.lastError ? (
                               <span className="text-red-700">{source.lastError}</span>
@@ -188,13 +406,35 @@ export default function AdminSourcesPage() {
                             )}
                           </td>
                           <td className="px-4 py-4">
-                            <button
-                              onClick={() => handleSync(source.id)}
-                              disabled={syncingId === source.id}
-                              className="rounded-full bg-[#3f4c97] px-5 py-2 font-semibold text-white transition hover:bg-[#334085] disabled:opacity-50"
-                            >
-                              {syncingId === source.id ? "Syncing..." : "Sync now"}
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                title="Edit source"
+                                aria-label={`Edit ${source.cityName} source`}
+                                onClick={() => startEditingSource(source)}
+                                className="rounded-md border border-gray-300 p-2 text-gray-700 transition hover:bg-gray-100"
+                              >
+                                <Pencil size={16} aria-hidden="true" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleSync(source.id)}
+                                disabled={syncingId === source.id}
+                                className="rounded-md bg-[#3f4c97] px-3 py-2 font-semibold text-white transition hover:bg-[#334085] disabled:opacity-50"
+                              >
+                                {syncingId === source.id ? "Syncing..." : "Sync now"}
+                              </button>
+                              <button
+                                type="button"
+                                title="Delete source"
+                                aria-label={`Delete ${source.cityName} source`}
+                                onClick={() => handleDeleteSource(source)}
+                                disabled={deletingId === source.id}
+                                className="rounded-md border border-red-200 p-2 text-red-700 transition hover:bg-red-50 disabled:opacity-50"
+                              >
+                                <Trash2 size={16} aria-hidden="true" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -207,5 +447,13 @@ export default function AdminSourcesPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function AdminSourcesPage() {
+  return (
+    <AdminGuard>
+      <AdminSourcesContent />
+    </AdminGuard>
   );
 }
