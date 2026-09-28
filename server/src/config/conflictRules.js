@@ -122,9 +122,12 @@ export function hasLandUseKeyword(text) {
 }
 
 export function calculateSeverity({ conflictType, amount } = {}) {
-  if (conflictType === CONFLICT_TYPES.BUSINESS_POSITION) {
-    return SEVERITY.MEDIUM;
-  }
+  if (
+  conflictType === CONFLICT_TYPES.BUSINESS_POSITION ||
+  conflictType === CONFLICT_TYPES.REAL_ESTATE
+) {
+  return SEVERITY.MEDIUM;
+}
 
   const dollars = parseAmount(amount);
   if (dollars == null) return SEVERITY.MEDIUM;
