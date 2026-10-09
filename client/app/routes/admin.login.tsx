@@ -82,7 +82,7 @@ export default function AdminLoginPage() {
           </button>
           {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
         </form>
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }
