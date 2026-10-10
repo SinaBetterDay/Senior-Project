@@ -18,7 +18,7 @@ export const GOV_CODE = {
 };
 
 export const MATCH_BANDS = {
-  AUTO_MATCH: 0.85,
+  AUTO_MATCH: 0.9,
   GEMINI_MIN: 0.7,
 };
 

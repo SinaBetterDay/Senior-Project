@@ -14,9 +14,9 @@ describes the corresponding review rules.
 | D | Gifts | The agenda text names a disclosed gift source. | $50 or more when an amount can be parsed; the amount determines severity. | Cal. Gov. Code §§87100, 87103(e) |
 | E | Travel payments | The agenda text names a disclosed travel-payment source. | $50 or more when an amount can be parsed; the amount determines severity. | Cal. Gov. Code §§87100, 87103(c) |
 
-Entity names are normalized before matching. High-confidence fuzzy matches are
-accepted automatically; only scores from 0.70 through 0.85 may be sent to Gemini
-for a constrained yes/no resolution. Every stored conflict retains its entity,
+Entity names are normalized before matching. Scores of 0.90 or above are
+accepted automatically; scores from 0.70 through 0.899 are sent to Gemini for a
+constrained yes/no resolution. Every stored conflict retains its entity,
 rule reference, severity, and source key for auditability.
 
 ## Approval status
