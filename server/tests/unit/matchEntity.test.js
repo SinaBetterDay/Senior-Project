@@ -67,6 +67,25 @@ describe("matchNamedEntity", () => {
     expect(GoogleGenerativeAI).not.toHaveBeenCalled();
   });
 
+  it("never matches entities on the configurable exclusion list", async () => {
+    const scoreEntityInText = vi.fn(() => 1);
+
+    const result = await matchNamedEntity(
+      "CITY OF LOS ANGELES",
+      "City of Los Angeles contract award",
+      { scoreEntityInText },
+    );
+
+    expect(result).toEqual({
+      matched: false,
+      score: 0,
+      usedGemini: false,
+      excluded: true,
+    });
+    expect(scoreEntityInText).not.toHaveBeenCalled();
+    expect(GoogleGenerativeAI).not.toHaveBeenCalled();
+  });
+
   it("uses Gemini in the 0.7–0.85 band", async () => {
     const generateContent = vi.fn().mockResolvedValue({
       response: { text: () => '{"isMatch": true}' },

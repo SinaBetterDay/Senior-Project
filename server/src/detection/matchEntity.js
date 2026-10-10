@@ -1,6 +1,6 @@
 import Fuse from "fuse.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { MATCH_BANDS } from "../config/conflictRules.js";
+import { MATCH_BANDS, isExcludedEntity } from "../config/conflictRules.js";
 import {
   areSameEntity,
   normalizeEntityName,
@@ -118,6 +118,10 @@ Rules:
 }
 
 export async function matchNamedEntity(name, agendaText, deps = {}) {
+  if (isExcludedEntity(name)) {
+    return { matched: false, score: 0, usedGemini: false, excluded: true };
+  }
+
   const scoreFn = deps.scoreEntityInText ?? scoreEntityInText;
   const normalizedAgendaText = normalizeEntityName(agendaText);
   const score = areSameEntity(name, normalizedAgendaText)
