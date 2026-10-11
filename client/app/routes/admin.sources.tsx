@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
-import { Navigate } from "react-router";
-import { Menu, Pencil, Plus, Search, Trash2, User, X } from "lucide-react";
+import { useEffect, useState, type FormEvent } from "react";
+import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { AdminGuard, AdminNav } from "../adminComponents";
 import { adminFetch } from "../adminAuth";
+import CityAgendaDiscovery from "../components/CityAgendaDiscovery";
 
 type Source = {
   id: string;
@@ -16,24 +16,6 @@ type Source = {
   lastError: string | null;
   status: "ready" | "running" | "success" | "failed" | "disabled";
 };
-
-function getAdminAccessToken() {
-  const savedToken = localStorage.getItem("adminAccessToken");
-  if (savedToken) return savedToken;
-
-  for (let index = 0; index < localStorage.length; index += 1) {
-    const key = localStorage.key(index);
-    if (!key?.startsWith("sb-") || !key.endsWith("-auth-token")) continue;
-
-    try {
-      const session = JSON.parse(localStorage.getItem(key) ?? "null");
-      if (typeof session?.access_token === "string") return session.access_token;
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
 
 function formatDate(date: string | null) {
   if (!date) return "Never";
@@ -52,7 +34,6 @@ function statusClass(status: Source["status"]) {
 }
 
 export default function AdminSourcesPage() {
-  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
@@ -69,15 +50,10 @@ export default function AdminSourcesPage() {
   const [apifyActorId, setApifyActorId] = useState("");
 
   async function loadSources() {
+    setLoading(true);
     try {
       setLoadError(null);
-      const session = await getVerifiedAdminSession();
-      if (!session) throw new Error("Admin session expired");
-
-      const token = getAdminAccessToken();
-      const res = await fetch(`${API_URL}/api/admin/sources`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const res = await adminFetch("/api/admin/sources");
 
       if (!res.ok) {
         const body = await res.json().catch(() => null);
@@ -107,13 +83,9 @@ export default function AdminSourcesPage() {
 
   async function handleSync(id: string) {
     setSyncingId(id);
-
     try {
-      const token = getAdminAccessToken();
-      const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
-      const res = await fetch(`${API_URL}/api/admin/sources/${id}/sync`, {
+      const res = await adminFetch(`/api/admin/sources/${id}/sync`, {
         method: "POST",
-        headers: authHeaders,
       });
 
       if (!res.ok) {
@@ -127,9 +99,7 @@ export default function AdminSourcesPage() {
 
       for (let attempt = 0; attempt < 120; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 1500));
-        const statusResponse = await fetch(`${API_URL}/api/admin/sources/${id}/sync/${syncLogId}`, {
-          headers: authHeaders,
-        });
+        const statusResponse = await adminFetch(`/api/admin/sources/${id}/sync/${syncLogId}`);
         const sync = await statusResponse.json().catch(() => null);
         if (!statusResponse.ok) {
           throw new Error(sync?.error ?? `Could not check sync status (${statusResponse.status})`);
@@ -173,18 +143,16 @@ export default function AdminSourcesPage() {
     setShowAddForm(true);
   }
 
-  async function handleAddSource(event: React.FormEvent<HTMLFormElement>) {
+  async function handleAddSource(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSaving(true);
     setAddError(null);
 
     try {
-      const token = getAdminAccessToken();
-      const res = await fetch(`${API_URL}/api/admin/sources${editingSourceId ? `/${editingSourceId}` : ""}`, {
+      const res = await adminFetch(`/api/admin/sources${editingSourceId ? `/${editingSourceId}` : ""}`, {
         method: editingSourceId ? "PUT" : "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           cityName,
@@ -218,10 +186,8 @@ export default function AdminSourcesPage() {
 
     setDeletingId(source.id);
     try {
-      const token = getAdminAccessToken();
-      const res = await fetch(`${API_URL}/api/admin/sources/${source.id}`, {
+      const res = await adminFetch(`/api/admin/sources/${source.id}`, {
         method: "DELETE",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
@@ -237,29 +203,22 @@ export default function AdminSourcesPage() {
     }
   }
 
-  if (isAdmin === null) {
-    return null;
-  }
-
-  if (!isAdmin) {
-    return <Navigate to="/admin/login" replace />;
-  }
-
   return (
-    <div className="min-h-screen bg-[#ececec] text-[#1f1f1f]">
-      <AdminNav title="Sources dashboard" />
+    <AdminGuard>
+      <div className="min-h-screen bg-slate-50 text-slate-950">
+        <AdminNav title="Sources dashboard" />
 
       <main className="px-4 py-10 md:px-10">
-        <div className="mx-auto max-w-6xl rounded-[2rem] bg-[#d9e3fb] px-6 py-8 shadow-sm md:px-10">
-          <div className="mb-8 text-center">
-            <h2 className="text-3xl font-semibold text-black md:text-4xl">
-              Admin Sources Dashboard
+        <div className="surface mx-auto max-w-6xl px-6 py-8 md:px-10">
+          <div className="mb-8">
+            <p className="eyebrow">Agenda ingestion</p>
+            <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">
+              Data sources
             </h2>
-            <div className="mx-auto mt-2 h-1 w-28 rounded bg-[#3f4c97]" />
-            <p className="mt-4 text-sm text-gray-700 md:text-base">
+            <p className="mt-3 text-sm text-slate-600 md:text-base">
               View ingestion source status and trigger manual syncs.
             </p>
-            <p className="mt-2 text-xs text-gray-600">
+            <p className="mt-2 text-xs text-slate-500">
               Last refreshed: {lastRefreshed.toLocaleTimeString()}
             </p>
           </div>
@@ -277,7 +236,7 @@ export default function AdminSourcesPage() {
                 }
               }}
               aria-expanded={showAddForm}
-              className="inline-flex items-center gap-2 rounded-md bg-[#3f4c97] px-4 py-2 font-semibold text-white transition hover:bg-[#334085]"
+              className="button-primary"
             >
               {showAddForm ? <X size={18} aria-hidden="true" /> : <Plus size={18} aria-hidden="true" />}
               {showAddForm ? "Close" : "Add source"}
@@ -285,7 +244,7 @@ export default function AdminSourcesPage() {
           </div>
 
           {showAddForm && (
-            <form onSubmit={handleAddSource} className="mb-8 border-y border-[#8c97b8] bg-white px-5 py-6">
+              <form onSubmit={handleAddSource} className="surface mb-8 bg-slate-50 px-5 py-6">
               <h3 className="mb-5 text-lg font-semibold text-gray-900">{editingSourceId ? "Edit ingestion source" : "New ingestion source"}</h3>
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
@@ -297,7 +256,7 @@ export default function AdminSourcesPage() {
                     onChange={(event) => setCityName(event.target.value)}
                     autoComplete="address-level2"
                     required
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 outline-none focus:border-[#3f4c97] focus:ring-2 focus:ring-[#3f4c97]/20"
+                    className="field"
                   />
                 </div>
                 <div>
@@ -307,7 +266,7 @@ export default function AdminSourcesPage() {
                     name="sourceType"
                     value={sourceType}
                     onChange={(event) => setSourceType(event.target.value as "Legistar" | "Apify")}
-                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 outline-none focus:border-[#3f4c97] focus:ring-2 focus:ring-[#3f4c97]/20"
+                    className="field"
                   >
                     <option value="Legistar">Legistar</option>
                     <option value="Apify">Apify</option>
@@ -324,7 +283,7 @@ export default function AdminSourcesPage() {
                       onChange={(event) => setLegistarBaseUrl(event.target.value)}
                       placeholder="https://webapi.legistar.com/v1/sacramento"
                       required
-                      className="w-full rounded-md border border-gray-300 px-3 py-2 outline-none focus:border-[#3f4c97] focus:ring-2 focus:ring-[#3f4c97]/20"
+                      className="field"
                     />
                   </div>
                 ) : (
@@ -337,7 +296,7 @@ export default function AdminSourcesPage() {
                       onChange={(event) => setApifyActorId(event.target.value)}
                       placeholder="username/actor-name"
                       required
-                      className="w-full rounded-md border border-gray-300 px-3 py-2 outline-none focus:border-[#3f4c97] focus:ring-2 focus:ring-[#3f4c97]/20"
+                      className="field"
                     />
                   </div>
                 )}
@@ -346,14 +305,16 @@ export default function AdminSourcesPage() {
               <div className="mt-5 flex justify-end">
                 <button
                   type="submit"
-                  disabled={isAdding}
-                  className="rounded-md bg-[#3f4c97] px-5 py-2 font-semibold text-white transition hover:bg-[#334085] disabled:opacity-50"
+                  disabled={isSaving}
+                  className="button-primary"
                 >
                   {isSaving ? "Saving..." : editingSourceId ? "Save changes" : "Save source"}
                 </button>
               </div>
             </form>
           )}
+
+          <CityAgendaDiscovery />
 
           {loadError && (
             <div className="mb-6 rounded-xl bg-red-100 px-4 py-3 text-sm font-medium text-red-800">
@@ -362,14 +323,14 @@ export default function AdminSourcesPage() {
           )}
 
           {loading ? (
-            <div className="rounded-2xl bg-white/70 px-6 py-10 text-center text-base text-gray-700 shadow-sm">
+            <div className="surface px-6 py-10 text-center text-base text-slate-600">
               Loading sources...
             </div>
           ) : (
-            <div className="overflow-hidden rounded-2xl border border-[#8c97b8] bg-white shadow-sm">
+            <div className="surface overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm text-gray-900">
-                  <thead className="bg-[#3f4c97] text-white">
+                  <thead className="bg-slate-100 text-slate-700">
                     <tr>
                       <th className="px-4 py-4 text-left font-semibold">City</th>
                       <th className="px-4 py-4 text-left font-semibold">Source Type</th>
@@ -422,7 +383,7 @@ export default function AdminSourcesPage() {
                                 type="button"
                                 onClick={() => handleSync(source.id)}
                                 disabled={syncingId === source.id}
-                                className="rounded-md bg-[#3f4c97] px-3 py-2 font-semibold text-white transition hover:bg-[#334085] disabled:opacity-50"
+                                className="button-primary px-3 py-2"
                               >
                                 {syncingId === source.id ? "Syncing..." : "Sync now"}
                               </button>
@@ -448,14 +409,7 @@ export default function AdminSourcesPage() {
           )}
         </div>
       </main>
-    </div>
-  );
-}
-
-export default function AdminSourcesPage() {
-  return (
-    <AdminGuard>
-      <AdminSourcesContent />
+      </div>
     </AdminGuard>
   );
 }

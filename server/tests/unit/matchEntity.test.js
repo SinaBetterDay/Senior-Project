@@ -43,7 +43,7 @@ describe("matchNamedEntity", () => {
     }
   });
 
-  it("auto-matches at >= 0.85 without calling Gemini", async () => {
+  it("auto-matches at >= 0.90 without calling Gemini", async () => {
     const result = await matchNamedEntity(
       "Pacific Gas and Electric",
       "Authorize a services agreement with Pacific Gas and Electric for undergrounding",
@@ -53,6 +53,22 @@ describe("matchNamedEntity", () => {
     expect(result.matched).toBe(true);
     expect(result.usedGemini).toBe(false);
     expect(GoogleGenerativeAI).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-match a score below the tuned confidence threshold", async () => {
+    const resolveWithGemini = vi.fn().mockResolvedValue(false);
+
+    const result = await matchNamedEntity("Acme Builders", "agenda text", {
+      scoreEntityInText: () => 0.87,
+      resolveWithGemini,
+    });
+
+    expect(result).toMatchObject({
+      matched: false,
+      score: 0.87,
+      usedGemini: true,
+    });
+    expect(resolveWithGemini).toHaveBeenCalledWith("Acme Builders", "agenda text");
   });
 
   it("does not call Gemini and does not match below 0.7", async () => {
@@ -67,7 +83,26 @@ describe("matchNamedEntity", () => {
     expect(GoogleGenerativeAI).not.toHaveBeenCalled();
   });
 
-  it("uses Gemini in the 0.7–0.85 band", async () => {
+  it("never matches entities on the configurable exclusion list", async () => {
+    const scoreEntityInText = vi.fn(() => 1);
+
+    const result = await matchNamedEntity(
+      "CITY OF LOS ANGELES",
+      "City of Los Angeles contract award",
+      { scoreEntityInText },
+    );
+
+    expect(result).toEqual({
+      matched: false,
+      score: 0,
+      usedGemini: false,
+      excluded: true,
+    });
+    expect(scoreEntityInText).not.toHaveBeenCalled();
+    expect(GoogleGenerativeAI).not.toHaveBeenCalled();
+  });
+
+  it("uses Gemini in the 0.70–0.90 band", async () => {
     const generateContent = vi.fn().mockResolvedValue({
       response: { text: () => '{"isMatch": true}' },
     });
