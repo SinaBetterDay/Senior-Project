@@ -10,15 +10,35 @@
  * hard-coding dollar cutoffs.
  */
 
+import { normalizeEntityName } from "../utils/entityNorm.js";
+
 export const GOV_CODE = {
   PARTICIPATION: "Cal. Gov. Code §87100",
   FINANCIAL_INTEREST: "Cal. Gov. Code §87103",
 };
 
 export const MATCH_BANDS = {
-  AUTO_MATCH: 0.85,
+  AUTO_MATCH: 0.9,
   GEMINI_MIN: 0.7,
 };
+
+/**
+ * Public agencies and similar generic entities that can appear in disclosures
+ * but must never create a named-entity conflict by themselves. Keep this list
+ * as display names; matching is normalized so casing, punctuation, and legal
+ * suffix differences do not bypass an exclusion.
+ */
+export const ENTITY_EXCLUSION_LIST = [
+  "City of Los Angeles",
+];
+
+const NORMALIZED_ENTITY_EXCLUSIONS = new Set(
+  ENTITY_EXCLUSION_LIST.map(normalizeEntityName).filter(Boolean),
+);
+
+export function isExcludedEntity(entityName) {
+  return NORMALIZED_ENTITY_EXCLUSIONS.has(normalizeEntityName(entityName));
+}
 
 export const AMOUNT_THRESHOLDS = {
   INVESTMENT: 2000,

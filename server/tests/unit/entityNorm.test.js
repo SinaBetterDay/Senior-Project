@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { isExcludedEntity } from "../../src/config/conflictRules.js";
 import { areSameEntity, normalizeEntityName } from "../../src/utils/entityNorm.js";
 
 describe("normalizeEntityName", () => {
@@ -30,5 +31,13 @@ describe("areSameEntity", () => {
     expect(areSameEntity("Acme Builders", "Northstar Paving")).toBe(false);
     expect(areSameEntity("", "")).toBe(false);
     expect(areSameEntity("Acme", "")).toBe(false);
+  });
+});
+
+describe("isExcludedEntity", () => {
+  it("normalizes configured exclusions before comparison", () => {
+    expect(isExcludedEntity("City of Los Angeles")).toBe(true);
+    expect(isExcludedEntity("CITY OF LOS ANGELES, INC.")).toBe(true);
+    expect(isExcludedEntity("Los Angeles County")).toBe(false);
   });
 });
