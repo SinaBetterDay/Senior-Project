@@ -244,6 +244,15 @@ export async function runNightlyLegistarSync(options = {}) {
       loadLegistarDataSources(sql),
       loadAgendaItemColumns(sql),
     ]);
+    const requestedCity = typeof options.city === 'string'
+      ? options.city.trim().toLowerCase()
+      : null;
+
+    const sourcesToProcess = requestedCity
+      ? dataSources.filter(
+        (source) => getCityName(source).trim().toLowerCase() === requestedCity,
+      )
+      : dataSources;
 
     const totals = {
       citiesProcessed: 0,
@@ -256,7 +265,7 @@ export async function runNightlyLegistarSync(options = {}) {
 
     const prismaClient = options.prisma ?? prisma;
 
-    for (const source of dataSources) {
+    for (const source of sourcesToProcess) {
       const startedAt = new Date();
       let syncLog = null;
       try {
