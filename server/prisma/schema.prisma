@@ -65,6 +65,7 @@ model Politician {
   scheduleCdeIncome    ScheduleCdeIncome[]
   scheduleA2Positions  ScheduleA2BusinessPosition[]
 
+  @@index([jurisdictionId], map: "politicians_jurisdiction_id_idx")
   @@map("politicians")
 }
 
@@ -80,6 +81,8 @@ model Meeting {
 
   agendaItems AgendaItem[]
 
+  @@index([jurisdictionId], map: "meetings_jurisdiction_id_idx")
+  @@index([meetingDate], map: "meetings_meeting_date_idx")
   @@map("meetings")
 }
 
@@ -118,8 +121,11 @@ model AgendaItem {
   conflictFlags ConflictFlag[]
   conflicts     Conflict[]
 
-  @@index([meetingDate])
-  @@index([cityName, meetingDate])
+  @@index([meetingId], map: "agenda_items_meeting_id_idx")
+  @@index([meetingDate], map: "agenda_items_meeting_date_idx")
+  @@index([cityName, meetingDate], map: "agenda_items_city_name_meeting_date_idx")
+  @@index([cityId, meetingDate], map: "agenda_items_city_id_meeting_date_idx")
+  @@index([sourceType], map: "agenda_items_source_type_idx")
   @@unique([cityId, meetingDate, itemNumber])
   @@map("agenda_items")
 }
@@ -135,6 +141,8 @@ model VoteRecord {
   createdAt    DateTime   @default(now()) @map("created_at")
 
   @@unique([agendaItemId, politicianId])
+  @@index([agendaItemId], map: "vote_records_agenda_item_id_idx")
+  @@index([politicianId], map: "vote_records_politician_id_idx")
   @@map("vote_records")
 }
 
@@ -175,6 +183,9 @@ model ConflictFlag {
   createdAt    DateTime    @default(now()) @map("created_at")
   updatedAt    DateTime    @default(now()) @map("updated_at")
 
+  @@index([politicianId], map: "conflict_flags_politician_id_idx")
+  @@index([agendaItemId], map: "conflict_flags_agenda_item_id_idx")
+  @@index([status], map: "conflict_flags_status_idx")
   @@map("conflict_flags")
 }
 
@@ -199,6 +210,10 @@ model Conflict {
   @@index([politicianId], map: "conflicts_politician_id_idx")
   @@index([agendaItemId], map: "conflicts_agenda_item_id_idx")
   @@index([detectedAt], map: "conflicts_detected_at_idx")
+  @@index([politicianId, detectedAt], map: "conflicts_politician_detected_at_idx")
+  @@index([agendaItemId, detectedAt], map: "conflicts_agenda_item_detected_at_idx")
+  @@index([politicianId, agendaItemId], map: "conflicts_politician_agenda_item_idx")
+  @@index([conflictType], map: "conflicts_conflict_type_idx")
   @@map("conflicts")
 }
 

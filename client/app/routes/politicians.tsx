@@ -1,17 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { usePublicData } from "../hooks/usePublicData";
+import RequestError from "../components/RequestError";
+import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { AlertCircle, Search, UserRound } from "lucide-react";
+import { Search, UserRound } from "lucide-react";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 type Politician = { id: string; slug?: string; fullName: string; district: string | null; conflictCount: number };
 export function meta() { return [{ title: "Public officials | FAIR" }, { name: "description", content: "Browse public officials, Form 700 filings, and linked conflict flags." }]; }
 
 export default function Politicians() {
-  const [politicians, setPoliticians] = useState<Politician[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [query, setQuery] = useState("");
-  useEffect(() => { const controller = new AbortController(); fetch(`${API_URL}/api/politicians`, { signal: controller.signal }).then((response) => { if (!response.ok) throw new Error(); return response.json(); }).then((result) => setPoliticians(Array.isArray(result.data) ? result.data : [])).catch((reason) => { if (reason.name !== "AbortError") setError("The public officials directory is temporarily unavailable."); }).finally(() => setLoading(false)); return () => controller.abort(); }, []);
+  const { data, loading, error, retry } = usePublicData<Politician[]>(`${API_URL}/api/politicians`);
+  const politicians = data ?? [];
+  const [query, setQuery] = useState("");
   const visible = useMemo(() => politicians.filter((politician) => `${politician.fullName} ${politician.district ?? ""}`.toLowerCase().includes(query.trim().toLowerCase())), [politicians, query]);
   return <main className="page-shell"><header className="max-w-3xl"><p className="eyebrow">Public directory</p><h1 className="mt-3 text-4xl font-bold tracking-tight">Public officials</h1><p className="mt-4 text-lg leading-8 text-slate-600">Browse officials included in FAIR’s public-record dataset and open their available filings and conflict flags.</p></header><div className="surface mt-8 flex items-center gap-3 p-3 sm:max-w-xl"><Search className="ml-1 text-slate-400" size={19} /><label htmlFor="official-search" className="sr-only">Search public officials</label><input id="official-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 border-0 bg-transparent px-1 py-2 text-sm outline-none" placeholder="Search by name or district" /></div>
-    {error && <div className="surface mt-8 border-red-200 bg-red-50 p-5 text-red-800" role="alert"><AlertCircle className="mr-2 inline" size={18} />{error}</div>}{loading && <div className="surface mt-8 p-8 text-slate-600" role="status">Loading public officials…</div>}
+    {error && <RequestError message={error} onRetry={retry} />}{loading && <div className="surface mt-8 p-8 text-slate-600" role="status">Loading public officials…</div>}
     {!loading && !error && <section className="mt-8" aria-label="Public officials directory"><p className="mb-4 text-sm text-slate-600">{visible.length} official{visible.length === 1 ? "" : "s"}</p>{visible.length === 0 ? <div className="surface p-10 text-center"><h2 className="font-semibold">No officials match this search</h2><p className="mt-2 text-sm text-slate-600">Try a shorter name or clear the search field.</p></div> : <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{visible.map((politician) => <Link key={politician.id} to={`/politicians/${encodeURIComponent(politician.slug ?? politician.id)}`} className="surface group p-5 transition hover:border-blue-300"><div className="flex items-start gap-4"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-600"><UserRound size={21} /></span><div className="min-w-0"><h2 className="font-semibold text-slate-950 group-hover:text-blue-800">{politician.fullName}</h2><p className="mt-1 text-sm text-slate-600">{politician.district ?? "District not listed"}</p></div></div><div className="mt-5 border-t border-slate-100 pt-4 text-sm"><span className="font-semibold text-slate-950">{politician.conflictCount}</span><span className="text-slate-600"> linked flag{politician.conflictCount === 1 ? "" : "s"}</span></div></Link>)}</div>}</section>}
   </main>;
 }

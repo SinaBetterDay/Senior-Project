@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { usePublicData } from "../hooks/usePublicData";
+import RequestError from "../components/RequestError";
+import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { AlertCircle, ChevronLeft, ChevronRight, Filter, RotateCcw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Filter, RotateCcw } from "lucide-react";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 const PAGE_SIZE = 20;
@@ -13,9 +15,9 @@ const severityClass = (severity: string) => severity.toUpperCase() === "HIGH" ? 
 export function meta() { return [{ title: "Conflict flags | FAIR" }, { name: "description", content: "Browse potential conflicts identified from public Form 700 disclosures and local government agendas." }]; }
 
 export default function ConflictsDashboard() {
-  const [conflicts, setConflicts] = useState<Conflict[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null);
+  const { data, loading, error, retry } = usePublicData<Conflict[]>(`${API_URL}/api/conflicts`);
+  const conflicts = data ?? [];
   const [city, setCity] = useState(""); const [type, setType] = useState(""); const [severity, setSeverity] = useState(""); const [sort, setSort] = useState<SortKey>("detectedAt"); const [page, setPage] = useState(1);
-  useEffect(() => { const controller = new AbortController(); fetch(`${API_URL}/api/conflicts`, { signal: controller.signal }).then((response) => { if (!response.ok) throw new Error("The conflict list is unavailable right now."); return response.json(); }).then((payload) => setConflicts(Array.isArray(payload.data) ? payload.data : [])).catch((reason) => { if (reason.name !== "AbortError") setError(reason.message); }).finally(() => setLoading(false)); return () => controller.abort(); }, []);
   const cities = useMemo(() => [...new Set(conflicts.map((item) => item.city).filter(Boolean))].sort(), [conflicts]);
   const types = useMemo(() => [...new Set(conflicts.map((item) => item.conflictType).filter(Boolean))].sort(), [conflicts]);
   const filtered = useMemo(() => conflicts.filter((item) => (!city || item.city === city) && (!type || item.conflictType === type) && (!severity || item.severity.toUpperCase() === severity)).sort((left, right) => sort === "severity" ? (severityOrder[right.severity.toUpperCase()] ?? 0) - (severityOrder[left.severity.toUpperCase()] ?? 0) : new Date(right.detectedAt).getTime() - new Date(left.detectedAt).getTime()), [conflicts, city, type, severity, sort]);

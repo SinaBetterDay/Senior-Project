@@ -1,3 +1,5 @@
+import RequestError from "../components/RequestError";
+import { safeMessage } from "../lib/request";
 import { useEffect, useState, type FormEvent } from "react";
 import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { AdminGuard, AdminNav } from "../adminComponents";
@@ -34,6 +36,7 @@ export default function AdminPoliticiansPage() {
 
   async function loadPoliticians() {
     setLoading(true);
+    setError(null);
     try {
       const response = await adminFetch("/api/admin/politicians");
       if (!response.ok) throw new Error(await responseError(response));
@@ -123,7 +126,7 @@ export default function AdminPoliticiansPage() {
               ))}
               <div className="flex items-end"><button disabled={saving} className="inline-flex items-center gap-2 bg-emerald-800 px-4 py-2.5 font-semibold text-white hover:bg-emerald-900 disabled:opacity-50" type="submit"><Plus size={17} />{saving ? "Saving..." : editingId ? "Save changes" : "Add politician"}</button></div>
             </form>
-            {error && <p className="mt-4 border-l-4 border-red-700 bg-red-50 px-3 py-2.5 text-sm text-red-800" role="alert">{error}</p>}
+            {error && <RequestError message={error} onRetry={loadPoliticians} />}
             {notice && <p className="mt-4 border-l-4 border-emerald-700 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-900" role="status">{notice}</p>}
             {deleting && <div className="mt-4 flex flex-wrap items-center gap-3 border border-amber-300 bg-amber-50 p-3 text-sm"><span>Delete {deleting.name}? This cannot be undone.</span><button type="button" onClick={deletePolitician} className="bg-red-800 px-3 py-1.5 font-medium text-white hover:bg-red-900">Confirm delete</button><button type="button" onClick={() => setDeleting(null)} className="px-3 py-1.5 text-slate-700 hover:bg-white">Cancel</button></div>}
           </section>

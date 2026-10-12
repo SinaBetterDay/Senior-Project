@@ -1,3 +1,4 @@
+import RequestError from "./RequestError";
 import { useState, type FormEvent } from "react";
 import { useCityDiscovery } from "../hooks/useCityDiscovery";
 
@@ -26,7 +27,7 @@ export default function CityAgendaDiscovery() {
         <button disabled={busy || !city.trim()} className="button-primary">{busy ? "Finding agendas…" : "Find and scrape agendas"}</button>
       </form>
       {message && <p role="status" className="mt-3 text-sm">{message}</p>}
-      {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
+      {error && <RequestError message={error} onRetry={() => { void discover(city.trim(), url); }} />}
       {documents.length > 0 && <ul className="mt-4 space-y-2">{documents.map((document) => (
         <li key={document.id}><a href={document.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-blue-800 underline">{document.meetingDate?.slice(0, 10)} — {document.title || "Agenda PDF"}</a></li>
       ))}</ul>}
