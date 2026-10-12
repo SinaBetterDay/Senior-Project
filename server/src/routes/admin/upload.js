@@ -285,6 +285,7 @@ router.post("/form700", receiveFile, async (req, res, next) => {
       }
       const err = new Error(`Failed to archive workbook: ${error?.message ?? error}`);
       err.statusCode = 500;
+      err.publicMessage = "Failed to archive workbook. Contact an administrator to check storage before uploading again.";
       return next(err);
     }
 

@@ -1,9 +1,9 @@
-import React from '../../../client/node_modules/react/index.js';
-import { renderToStaticMarkup } from '../../../client/node_modules/react-dom/server.node.js';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, expect, it, vi } from 'vitest';
-import CityAgendaDiscovery from '../../../client/app/components/CityAgendaDiscovery';
-vi.mock('../../../client/app/hooks/useCityDiscovery', () => ({ useCityDiscovery: vi.fn() }));
-import { useCityDiscovery } from '../../../client/app/hooks/useCityDiscovery';
+import CityAgendaDiscovery from './CityAgendaDiscovery';
+vi.mock('../hooks/useCityDiscovery', () => ({ useCityDiscovery: vi.fn() }));
+import { useCityDiscovery } from '../hooks/useCityDiscovery';
 afterEach(() => vi.clearAllMocks());
 it('renders city-only input and an optional URL fallback', () => {
   vi.mocked(useCityDiscovery).mockReturnValue({ busy: false, error: '', message: '', documents: [], discover: vi.fn() });

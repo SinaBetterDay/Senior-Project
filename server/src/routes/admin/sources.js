@@ -1,5 +1,6 @@
 // server/src/routes/admin/sources.js
 import express from 'express';
+import { syncErrorMessage } from '../../utils/syncErrorMessage.js';
 import { requireAdmin } from '../../lib/auth.js';
 import { ApifyClient } from 'apify-client';
 import { prisma } from '../../lib/prisma.js';
@@ -251,7 +252,7 @@ router.get('/', requireAdmin, async (req, res) => {
         enabled: source.enabled,
         lastSyncTime: source.lastSyncedAt,
         totalAgendaItems,
-        lastError: source.lastError,
+        lastError: syncErrorMessage(latestSync?.errors) ?? syncErrorMessage(source.lastError),
         status: latestSync?.status ?? (source.enabled ? 'ready' : 'disabled'),
       };
     }));
@@ -365,7 +366,7 @@ router.get('/:id/sync/:syncLogId', requireAdmin, async (req, res) => {
       itemsFound: syncLog.itemsFound,
       itemsInserted: syncLog.itemsInserted,
       itemsSkipped: syncLog.itemsSkipped,
-      error: syncLog.errors?.message ?? null,
+      error: syncErrorMessage(syncLog.errors),
     });
   } catch (error) {
     console.error('[admin/sources] failed to load sync status', error);
