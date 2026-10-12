@@ -1,4 +1,8 @@
 {
+  "scripts": {
+    "docs:check": "node scripts/check-docs.mjs",
+    "test:docs": "node --test scripts/check-docs.test.mjs"
+  },
   "dependencies": {
     "@supabase/supabase-js": "^2.104.1",
     "apify-client": "^2.23.0"

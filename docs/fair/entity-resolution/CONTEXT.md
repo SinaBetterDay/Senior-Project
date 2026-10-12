@@ -1,20 +1,26 @@
-# Workspace — Entity resolution & matching
+# Workspace — entity resolution and conflict detection
 
-## Role
+Two matching flows use different thresholds; do not merge them accidentally.
 
-Link **people / entities** across Form 700 rows and agenda lines, then flag potential **conflicts of interest**.
+## Agenda text ↔ disclosed entity
 
-## Matching stack
+- Entry point: `server/src/detection/matchEntity.js`.
+- Threshold source: `server/src/config/conflictRules.js`.
+- Exact/normalized or fuzzy score `>= 0.90`: automatic match.
+- Score `0.70–0.899…`: optional Gemini decision.
+- Score `< 0.70`: no match.
+- Tests: `server/tests/unit/matchEntity.test.js` and detector-specific tests.
 
-- **Fuzzy matching:** `fuse.js` for name and text similarity.
-- **LLM:** **Google Gemini 1.5 Flash API** — use **only** when fuzzy scores fall **between 0.7 and 0.85** (ambiguous band). Outside that band, rely on rules + fuse thresholds without extra LLM cost.
+## Uploaded filer ↔ politician
 
-## Boundaries
+- Entry point: `server/src/utils/findOrCreatePolitician.js`.
+- Score `>= 0.85`: reuse politician.
+- Score `0.70–0.849…`: optional Gemini decision.
+- Otherwise create a politician marked for review.
+- Tests: `server/tests/unit/findOrCreatePolitician.test.js`.
 
-- No Gemini calls for every row by default; keep resolution **deterministic** when possible.
-- Log or persist resolution decisions for auditability (FPPC context).
+## Detection and persistence
 
-## Related docs
+`server/src/detection/detectConflicts.js` orchestrates investment, real-estate, income/gift/travel, and business-position detectors, then `persistConflicts.js` stores deduplicated results. Executable legal thresholds and exclusions live in `server/src/config/conflictRules.js`; explanatory rules live in `docs/conflict_rules.md`.
 
-- `../form700-ingestion/CONTEXT.md`, `../agenda-ingestion/CONTEXT.md`
-- `server/CONTEXT.md`
+Keep deterministic normalization and exclusion rules ahead of LLM calls. FAIR produces review candidates, not legal conclusions.

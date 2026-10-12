@@ -1,48 +1,37 @@
-# FAIR — workspace map (read this first) 
+# FAIR — agent entry point
 
-**FAIR** = Financial Accountability & Interest Review — a public web app for the **California FPPC** that cross-references **Form 700** financial disclosures with **city council agendas** to surface potential conflicts of interest.
+FAIR (Financial Accountability & Interest Review) compares California Form 700 disclosures with city-council agendas and surfaces **potential** conflicts for human review.
 
-This repo uses a **three-layer** layout: (1) this file + `DIRECTORY.md`, (2) area `CONTEXT.md` files, (3) real code and data under `client/`, `server/`, etc.
+## Read in this order
 
-## Layer 1 — Map (always relevant)
+1. Read `DIRECTORY.md` and choose the task row that matches the request.
+2. Read only the listed `CONTEXT.md`, entry points, and nearby tests.
+3. Search for symbols before opening more files. Expand context only when an import, route, schema relation, or API contract crosses an area boundary.
 
-- **Public users:** browse/compare; **no** login.
-- **Admins only:** Supabase Auth (single email/password; **no** public registration).
-- **Raw Form 700:** archived in **Supabase Storage** (XLSX).
-- **DB:** PostgreSQL on **Supabase**; ORM: **Prisma** (target stack).
-- **Frontend:** React (Vite), Tailwind, React Router — **`client/`**.
-- **Backend:** Node, Express — **`server/`** (hosting target: Railway).
-- **Scraping:** **Legistar REST** where available; **Apify** for PDF-only cities.
-- **Parsing:** `pdf-parse`, SheetJS `xlsx`.
-- **Matching:** `fuse.js`; **Gemini 1.5 Flash** only for fuzzy scores **0.7–0.85** (entity resolution).
-- **Email:** Resend (weekly admin digests).
-- **Jobs:** **`node-cron`** nightly sync — **not** BullMQ/Redis.
+Do **not** preload lockfiles, generated output, binary fixtures, Jira CSV exports, or the whole repository. They are indexed in `DIRECTORY.md` but rarely belong in a prompt.
 
-## Layer 2 — Rooms (load by task)
+## Stable project facts
 
-| Area | Folder / doc |
-|------|----------------|
-| UI | `client/CONTEXT.md` |
-| HTTP API & app server | `server/CONTEXT.md` |
-| DB & auth & storage policy | `supabase/CONTEXT.md` |
-| Agenda import scripts (Python) | `APIs/CONTEXT.md` |
-| Form 700 ingestion & schedules | `docs/fair/form700-ingestion/CONTEXT.md` |
-| Agendas (Legistar / Apify / PDF) | `docs/fair/agenda-ingestion/CONTEXT.md` |
-| Fuse + Gemini resolution | `docs/fair/entity-resolution/CONTEXT.md` |
-| Nightly sync | `docs/fair/cron-jobs/CONTEXT.md` |
-| Resend digests | `docs/fair/admin-notifications/CONTEXT.md` |
+- Frontend: React 19 + React Router 7 + Tailwind 4 in `client/`.
+- API/jobs: Node.js + Express 4 in `server/`.
+- Database: PostgreSQL on Supabase. Prisma owns the application schema in `server/prisma/`; `supabase/migrations/` is only for Supabase-specific Storage/RLS/auth SQL.
+- Admin auth: Supabase email/password; there is no public registration flow.
+- Agenda ingestion: Legistar for structured sources and the TypeScript Actor in `apify/` for document-only sources.
+- Scheduling: `node-cron` is implemented. The checked-in GitHub scheduled-workflow files are disabled; do not describe them as active.
+- Notifications: Resend weekly digests are planned/documented but not implemented.
 
-## Layer 3 — Where work lands
+## Source-of-truth rules
 
-- App code: `client/`, `server/`.
-- SQL migrations: `supabase/migrations/`.
-- Legacy/misc: `Backend/`, `workflows/`.
+- Running code, package scripts, Prisma schema, migrations, and tests outrank prose when they disagree.
+- Prisma code uses camelCase model fields; raw SQL and Supabase queries use mapped snake_case names.
+- Agenda entity matching uses `0.90` automatic match / `0.70` Gemini minimum in `server/src/config/conflictRules.js`. Politician deduplication separately uses `0.85` / `0.70` in `server/src/utils/findOrCreatePolitician.js`.
+- FAIR reports candidates for review; it does not make legal determinations.
 
-## Naming & routing
+## Change expectations
 
-- Prefer **stable file names** so humans and tools can find artifacts (e.g. dated agendas, `draft` / `v2` Form 700 outputs).
-- Before large edits, read **`DIRECTORY.md`** for task → files to read/skip.
+- Follow the nearest `CONTEXT.md` and existing conventions.
+- Add or update tests for code changes. Documentation-only changes use `npm run docs:check`.
+- Update `README.md` only when setup, usage, architecture, or user-facing capabilities change.
+- Never commit secrets or expose server credentials through `VITE_*` variables.
 
-## Form 700 schedule names (domain vocabulary)
-
-Schedules **A, B, C, D, E, A-2** — see `docs/fair/form700-ingestion/CONTEXT.md`.
+Other agent tools should start at `AGENTS.md`, which points back to this same map without duplicating it.

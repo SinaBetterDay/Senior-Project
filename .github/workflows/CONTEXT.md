@@ -1,17 +1,15 @@
-# GitHub Actions — FAIR (`.github/workflows/`)
+# GitHub Actions (`.github/workflows/`)
 
-## Role
+## Active workflow
 
-CI and scheduled maintenance workflows for the monorepo. 
+`ci.yml` runs on pull requests to `dev`/`main` and pushes to `main`. It provisions PostgreSQL 15, installs backend and frontend dependencies, generates Prisma, deploys migrations, runs documentation validation, and runs backend unit tests.
 
-- **`test` job** — runs on every PR to `dev` / `main` and on push to `main`. Spins up a `postgres:15` service, then in `server/`: `npm ci` → `npx prisma generate` → `npx prisma migrate deploy` → `npm test` (vitest, `tests/unit`). `DATABASE_URL` and `DIRECT_URL` both point at the service container.
-- **`scheduled-legistar-sync.yml`** — runs `npm run sync:legistar` daily at 02:00 UTC or manually. Requires repository secrets `DATABASE_URL` and `DIRECT_URL`.
-- **`scheduled-apify-agendas.yml`** — runs the full Apify → PDF → database ingestion path Mondays at 03:10 UTC or manually. Requires repository secrets `APIFY_TOKEN`, `DATABASE_URL`, and `DIRECT_URL`, plus repository variable `APIFY_ACTOR_ID`.
-- **Railway deployment** is configured in Railway's GitHub integration, not through the Railway CLI. Enable Railway **Wait for CI** so deployment follows a successful `CI/CD` workflow.
+The frontend dependencies are installed, but frontend tests/typecheck/build are not currently CI steps. The Apify package is also not installed or tested by CI.
 
-Making `test` a required status check is a repository-settings change (Settings → Branches → protection rule for `dev`/`main`); it is not configured from this folder.
+## Disabled placeholders
 
-## Related docs
+`scheduled-legistar-sync.yml` and `scheduled-apify-agendas.yml` each contain only `# disabled`. Treat any schedules described elsewhere as target deployment guidance until these files contain valid workflows.
 
-- `../../workflows/CONTEXT.md`
-- `../../CLAUDE.md`
+Railway deployment and required branch checks are repository/platform settings, not configured here.
+
+Related: `../../CLAUDE.md`, `../../DIRECTORY.md`.

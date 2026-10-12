@@ -53,6 +53,12 @@ jobs:
         working-directory: client
         run: npm ci --include=dev
 
+      - name: Validate documentation navigation
+        run: npm run docs:check
+
+      - name: Test documentation validator
+        run: npm run test:docs
+
       - name: Generate Prisma client
         working-directory: server
         run: npx prisma generate

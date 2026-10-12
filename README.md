@@ -19,7 +19,7 @@
 
 **FAIR** (*Financial Accountability & Interest Review*) is a full-stack compliance platform built for the **California Fair Political Practices Commission (FPPC)**. It helps analysts and the public see when local officials’ **Form 700** financial disclosures may overlap with **city council agenda** items—surfacing potential conflicts of interest before votes happen.
 
-The system ingests structured agenda data (**Legistar REST**), PDF-only city agendas (**Apify** + `pdf-parse`), and admin-uploaded **Form 700** spreadsheets (archived in **Supabase Storage**). Parsed entities are matched with **fuse.js**; ambiguous cases (fuzzy scores **0.7–0.85**) can be escalated to **Gemini 1.5 Flash**. Admins receive weekly digests via **Resend**; a **node-cron** job keeps data fresh overnight.
+The system ingests structured agenda data (**Legistar REST**), PDF-only city agendas (**Apify** + `pdf-parse`), and admin-uploaded **Form 700** spreadsheets (archived in **Supabase Storage**). Parsed entities are matched with **fuse.js**; explicit ambiguous bands can be escalated to **Gemini 1.5 Flash** (agenda entities: **0.70–0.899…**; politician deduplication: **0.70–0.849…**). A **node-cron** scheduler can keep data fresh; Resend weekly digests remain planned rather than implemented.
 
 | Audience | Experience |
 |----------|------------|
@@ -39,15 +39,15 @@ The system ingests structured agenda data (**Legistar REST**), PDF-only city age
 | Frontend | `client/` | Vercel |
 | API & jobs | `server/` | Railway |
 | Database & storage | `supabase/` | Supabase (PostgreSQL + Storage) |
-| Agenda helpers | `APIs/` | Scripts / cron orchestration |
+| Agenda scraping | `apify/` | Apify Actor |
 
-> **Repo map:** start with [`CLAUDE.md`](CLAUDE.md) and [`DIRECTORY.md`](DIRECTORY.md) for task-specific context files.
+> **Repo map:** agents and contributors should start with [`CLAUDE.md`](CLAUDE.md), then use [`DIRECTORY.md`](DIRECTORY.md) to load only the files needed for a task. Generic coding agents can enter through [`AGENTS.md`](AGENTS.md).
 
 ---
 
 ## Data model (ERD)
 
-Core relational model (seven tables) — full definition in [`server/prisma/schema.prisma`](server/prisma/schema.prisma):
+The authoritative relational model is defined in [`server/prisma/schema.prisma`](server/prisma/schema.prisma):
 
 <p align="center">
   <img src="docs/assets/erd.svg" alt="FAIR entity-relationship diagram" width="760"/>
@@ -104,7 +104,7 @@ Senior-Project/
 - **Node.js** 20+
 - **npm** (per-package lockfiles in `client/` and `server/`)
 - **Supabase** project (Postgres + Storage + Auth)
-- Optional: **Vercel** CLI, **Apify** token, **Gemini** API key, **Resend** API key
+- Optional: **Vercel** CLI, **Apify** token, and **Gemini** API key. Resend notifications are planned but not implemented.
 
 ### Quick start (draft)
 
@@ -143,7 +143,7 @@ npm run dev             # Vite dev server (default port in terminal output)
 | `SUPABASE_URL` + `SUPABASE_SECRET_KEY` | server | URL and secret/service-role key; the secret key is server-only |
 | `APIFY_ACTOR_ID` | server | e.g. `fppc-csus~fair-agenda-pdf-scraper` |
 | `GEMINI_API_KEY` | server | Entity resolution band only |
-| `RESEND_API_KEY` | server | Weekly admin digests |
+| `RESEND_API_KEY` | server | Reserved for planned weekly admin digests; currently unused |
 
 The frontend uses its own `client/.env` with `VITE_API_URL`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_ANON_KEY`. Only `VITE_*` values are exposed to the browser; never place `SUPABASE_SECRET_KEY`, database URLs, or API tokens there.
 
@@ -178,6 +178,11 @@ npm run build
 
 cd server
 npm test
+
+# Repository documentation/navigation checks
+cd ..
+npm run docs:check
+npm run test:docs
 ```
 
 The admin login stores the complete Supabase session under `fair.admin.session`, including the refresh token used to renew an expired access token. If the public Supabase URL or anon key is missing or still contains the placeholder value from `client/.env.example`, the login page displays setup guidance instead of exposing a fake privileged session.
@@ -201,13 +206,13 @@ The admin login stores the complete Supabase session under `fair.admin.session`,
 |-----------|----------|---------|
 | `client/` | **Vercel** | Push to `main` (or preview on PR) |
 | `server/` | **Railway** | Railway GitHub autodeploy after successful CI |
-| Database | **Supabase** | Migrations via Prisma / SQL in `supabase/migrations/` |
-| Scheduled Legistar sync | **GitHub Actions** | Daily, 02:00 UTC, or manual run |
-| Scheduled Apify PDF ingestion | **GitHub Actions** | Monday, 03:10 UTC, or manual run |
+| Database | **Supabase** | App migrations in `server/prisma/migrations/`; Supabase-only SQL in `supabase/migrations/` |
+| Scheduled Legistar sync | **Target: GitHub Actions** | Workflow file is currently disabled |
+| Scheduled Apify PDF ingestion | **Target: GitHub Actions** | Workflow file is currently disabled |
 
-CI workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) uses a temporary Postgres service to run `prisma generate`, `prisma migrate deploy`, and `npm test`. Railway deploys directly from GitHub: configure root directory `server`, pre-deploy command `npx prisma migrate deploy`, start command `npm start`, healthcheck path `/health`, and enable **Wait for CI**. Set `CRON_ENABLED=false` in Railway because scheduled jobs run in GitHub Actions.
+CI workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) validates documentation navigation, uses a temporary Postgres service, and runs `prisma generate`, `prisma migrate deploy`, and backend `npm test`. Railway can deploy directly from GitHub: configure root directory `server`, pre-deploy command `npx prisma migrate deploy`, start command `npm start`, and healthcheck path `/health`. Keep `CRON_ENABLED=false` when an external scheduler is enabled; otherwise scheduling is provided by the server's `node-cron` process.
 
-Scheduled workflows require GitHub repository secrets `DATABASE_URL`, `DIRECT_URL`, and `APIFY_TOKEN`, plus repository variable `APIFY_ACTOR_ID`. Do not store `RAILWAY_TOKEN`, `RAILWAY_SERVICE_ID`, or other Railway deployment identifiers in GitHub or runtime environment files.
+The checked-in scheduled workflow files contain only `# disabled`. If re-enabled, they will require GitHub repository secrets `DATABASE_URL`, `DIRECT_URL`, and `APIFY_TOKEN`, plus repository variable `APIFY_ACTOR_ID`. Do not store `RAILWAY_TOKEN`, `RAILWAY_SERVICE_ID`, or other Railway deployment identifiers in runtime environment files.
 
 ### _To complete in CSC 191_
 
@@ -231,7 +236,7 @@ Planned delivery for **CSC 191** based on backlog user stories and story-point e
 | 2–3 | **Form 700 ingestion** | FAIR-2 | Admin XLSX upload, parse schedules A–E & A-2, persist filings | 13 |
 | 3–4 | **Legistar agendas** | FAIR-3 | Pull meetings/agenda items/votes for Legistar cities; normalize shape | 8 |
 | 4–5 | **PDF / Apify pipeline** | FAIR-4 | Apify actor for non-Legistar cities; PDF parse → agenda items | 13 |
-| 5–6 | **Entity resolution** | FAIR-5 | fuse.js matching; Gemini only in 0.7–0.85 band; audit log | 13 |
+| 5–6 | **Entity resolution** | FAIR-5 | fuse.js matching; Gemini only in feature-specific ambiguous bands; audit log | 13 |
 | 6–7 | **Conflict detection** | FAIR-6 | Create/update `ConflictFlag` records; severity & status workflow | 8 |
 | 7–8 | **Public UI** | FAIR-7 | Browse officials, agendas, flags; search & detail pages | 8 |
 | 8 | **Admin UI** | FAIR-8 | Login, upload UI, source config, flag review queue | 8 |
@@ -278,7 +283,7 @@ _Update JIRA keys (`FAIR-*`) and calendar dates when your PO locks the 191 sprin
 | Agendas | Legistar REST, Apify, `pdf-parse` |
 | Form 700 | SheetJS `xlsx` |
 | Matching | `fuse.js`, Gemini 1.5 Flash (ambiguous band) |
-| Email | Resend |
+| Email | Resend (planned; not implemented) |
 | Jobs | `node-cron` (no Redis/BullMQ) |
 
 ---
