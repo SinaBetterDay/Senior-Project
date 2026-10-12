@@ -1,4 +1,5 @@
 import express from 'express';
+import { performance } from 'node:perf_hooks';
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -85,4 +86,31 @@ describe('admin PDF reports', () => {
     expect(mocks.conflictFindMany).not.toHaveBeenCalled();
     expect(mocks.launch).not.toHaveBeenCalled();
   });
+
+  it('renders a report with 200 conflicts in under 15 seconds', async () => {
+    const actualPuppeteer = await vi.importActual('puppeteer');
+    mocks.launch.mockImplementation(options => actualPuppeteer.default.launch(options));
+    mocks.conflictFindMany.mockResolvedValue(Array.from({ length: 200 }, (_, index) => ({
+      conflictType: ['INVESTMENT', 'REAL_ESTATE', 'INCOME'][index % 3],
+      severity: ['HIGH', 'MEDIUM', 'LOW'][index % 3],
+      entityName: `Disclosed entity ${index}`,
+      detectedAt: new Date(Date.UTC(2026, 9, 2 + index % 27)),
+      reviewStatus: 'pending',
+      ruleReference: 'Gov. Code 87103',
+      politician: { fullName: `Official ${index % 20}`, jurisdiction: { name: `City ${index % 10}` } },
+      agendaItem: {
+        title: `Agenda contract review item ${index}`,
+        cityName: `City ${index % 10}`,
+        meetingDate: new Date(Date.UTC(2026, 9, 1 + index % 28)),
+      },
+    })));
+
+    const startedAt = performance.now();
+    const response = await request(app).post('/api/admin/reports/pdf').send({ scope: 'all' });
+    const elapsedMs = performance.now() - startedAt;
+
+    expect(response.status).toBe(200);
+    expect(response.body.subarray(0, 4).toString()).toBe('%PDF');
+    expect(elapsedMs).toBeLessThan(15_000);
+  }, 20_000);
 });
