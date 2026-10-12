@@ -63,18 +63,15 @@ app.use((err, _req, res, _next) => {
   const isProduction = process.env.NODE_ENV === 'production';
 
   if (statusCode >= 500 || !isProduction) {
-    console.error('[server] unhandled error:', isProduction ? err?.message : err);
+    console.error('[server] unhandled error:', err);
   }
 
   const message =
-    statusCode >= 500 && isProduction
-      ? 'internal server error'
-      : (err?.message ?? 'internal server error');
+    err?.publicMessage ?? (statusCode >= 500
+      ? 'The server could not complete this request. Please try again.'
+      : 'The request could not be processed. Check your input and try again.');
 
   const body = { error: message };
-  if (!isProduction && err?.stack) {
-    body.stack = err.stack;
-  }
 
   res.status(statusCode).json(body);
 });

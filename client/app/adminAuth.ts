@@ -1,3 +1,4 @@
+import { request, safeMessage } from "./lib/request";
 type SessionResponse = { access_token: string; refresh_token: string; expires_in: number; expires_at?: number; user?: { id?: string; email?: string } };
 export type AdminSession = SessionResponse & { expires_at: number };
 
@@ -23,21 +24,21 @@ function readSession(): AdminSession | null {
 }
 async function requestToken(grant: "password" | "refresh_token", credentials: Record<string, string>) {
   const { url, anonKey } = authConfig();
-  const response = await fetch(`${url}/auth/v1/token?grant_type=${grant}`, { method: "POST", headers: { apikey: anonKey, "Content-Type": "application/json" }, body: JSON.stringify(credentials) });
+  const response = await request(`${url}/auth/v1/token?grant_type=${grant}`, { method: "POST", headers: { apikey: anonKey, "Content-Type": "application/json" }, body: JSON.stringify(credentials) });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error_description ?? result.msg ?? result.message ?? "Sign-in failed.");
+  if (!response.ok) throw new Error(safeMessage(result.error_description ?? result.msg ?? result.message, "Sign-in failed."));
   return storeSession(result as SessionResponse);
 }
 export function signInWithPassword(email: string, password: string) { return requestToken("password", { email, password }); }
 export async function getAdminSession(): Promise<AdminSession> { const session = readSession(); if (!session) throw new Error("Admin session is missing."); if (session.expires_at > Date.now() + 30_000) return session; return requestToken("refresh_token", { refresh_token: session.refresh_token }); }
 export async function getAdminAccessToken() { return (await getAdminSession()).access_token; }
 export function clearAdminSession() { window.localStorage.removeItem(SESSION_KEY); window.sessionStorage.removeItem(SESSION_KEY); window.localStorage.removeItem("adminAccessToken"); window.localStorage.removeItem("isAdmin"); }
-export async function signOut() { const session = readSession(); clearAdminSession(); if (!session) return; try { const { url, anonKey } = authConfig(); await fetch(`${url}/auth/v1/logout`, { method: "POST", headers: { apikey: anonKey, Authorization: `Bearer ${session.access_token}` } }); } catch { /* best effort */ } }
+export async function signOut() { const session = readSession(); clearAdminSession(); if (!session) return; try { const { url, anonKey } = authConfig(); await request(`${url}/auth/v1/logout`, { method: "POST", headers: { apikey: anonKey, Authorization: `Bearer ${session.access_token}` } }); } catch { /* best effort */ } }
 export async function adminFetch(path: string, init: RequestInit = {}) {
   let token: string;
-  try { token = await getAdminAccessToken(); } catch (error) { clearAdminSession(); if (window.location.pathname !== "/admin/login") window.location.assign("/admin/login"); throw error; }
+  token = await getAdminAccessToken();
   const headers = new Headers(init.headers); headers.set("Authorization", `Bearer ${token}`);
-  const response = await fetch(`${API_URL}${path}`, { ...init, headers });
+  const response = await request(`${API_URL}${path}`, { ...init, headers });
   if (response.status === 401) { clearAdminSession(); window.location.assign("/admin/login"); }
   return response;
 }

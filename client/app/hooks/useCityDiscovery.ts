@@ -9,6 +9,7 @@ export function useCityDiscovery() {
   const [error, setError] = useState("");
   const [documents, setDocuments] = useState<AgendaDocument[]>([]);
   const controller = useRef<AbortController | null>(null);
+  const pendingRun = useRef<{ sourceId: string; syncLogId: string; key: string } | null>(null);
   useEffect(() => () => controller.current?.abort(), []);
 
   async function discover(cityName: string, startUrl: string) {
@@ -18,22 +19,30 @@ export function useCityDiscovery() {
     setBusy(true); setError(""); setDocuments([]);
     setMessage("Finding the official city website and scraping council agendas…");
     try {
+      const key = JSON.stringify([cityName, startUrl.trim()]);
+      let run = pendingRun.current?.key === key ? pendingRun.current : null;
+      if (!run) {
       const response = await adminFetch("/api/admin/sources/discover", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cityName, startUrl: startUrl.trim() }), signal: current.signal,
       });
-      const run = await response.json();
-      if (!response.ok) throw new Error(run.error ?? "Could not start discovery.");
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Could not start discovery.");
+      run = { sourceId: payload.sourceId, syncLogId: payload.syncLogId, key };
+      pendingRun.current = run;
+      }
       for (let attempt = 0; attempt < 240; attempt++) {
         if (current.signal.aborted) return;
         await new Promise((resolve) => setTimeout(resolve, 3000));
         const statusResponse = await adminFetch(`/api/admin/sources/${run.sourceId}/sync/${run.syncLogId}`, { signal: current.signal });
         const status = await statusResponse.json();
+        if (status.status === "failed") pendingRun.current = null;
         if (!statusResponse.ok || status.status === "failed") throw new Error(status.error ?? "Agenda discovery failed.");
         if (status.status === "success") {
           const result = await adminFetch(`/api/admin/sources/${run.sourceId}/documents`, { signal: current.signal });
           if (!result.ok) throw new Error("Scrape completed, but documents could not be loaded.");
           setDocuments(await result.json());
+          pendingRun.current = null;
           setMessage(status.itemsFound ? `Found ${status.itemsFound} agenda files; saved ${status.itemsInserted} new files.` : "No dated agenda PDFs found in the last 14 days or upcoming meetings. Try the official agenda archive URL.");
           return;
         }

@@ -1,3 +1,5 @@
+import RequestError from "../components/RequestError";
+import { safeMessage } from "../lib/request";
 import { useEffect, useState, type FormEvent } from "react";
 import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "react-hot-toast";
@@ -34,6 +36,7 @@ function statusClass(status: Source["status"]) {
 }
 
 export default function AdminSourcesPage() {
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
@@ -82,6 +85,7 @@ export default function AdminSourcesPage() {
   }, []);
 
   async function handleSync(id: string) {
+    setSyncError(null);
     setSyncingId(id);
     try {
       const res = await adminFetch(`/api/admin/sources/${id}/sync`, {
@@ -117,7 +121,7 @@ export default function AdminSourcesPage() {
       throw new Error("Sync is taking longer than expected. Refresh the source list to check its status.");
     } catch (err) {
       console.error("Sync failed", err);
-      toast.error(err instanceof Error ? err.message : "Sync failed");
+      setSyncError(safeMessage(err, "Sync failed."));
       await loadSources();
     } finally {
       setSyncingId(null);
@@ -301,7 +305,7 @@ export default function AdminSourcesPage() {
                   </div>
                 )}
               </div>
-              {addError && <p role="alert" className="mt-4 text-sm font-medium text-red-700">{addError}</p>}
+              {addError && <p role="alert" className="mt-4 text-sm font-medium text-red-700">{safeMessage(addError)}</p>}
               <div className="mt-5 flex justify-end">
                 <button
                   type="submit"
@@ -315,18 +319,17 @@ export default function AdminSourcesPage() {
           )}
 
           <CityAgendaDiscovery />
+          {syncError && <RequestError message={syncError} onRetry={loadSources} />}
 
           {loadError && (
-            <div className="mb-6 rounded-xl bg-red-100 px-4 py-3 text-sm font-medium text-red-800">
-              {loadError}
-            </div>
+            <RequestError message={loadError} onRetry={loadSources} />
           )}
 
           {loading ? (
             <div className="surface px-6 py-10 text-center text-base text-slate-600">
               Loading sources...
             </div>
-          ) : (
+          ) : !loadError && (
             <div className="surface overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm text-gray-900">
@@ -363,7 +366,7 @@ export default function AdminSourcesPage() {
                           </td>
                           <td className="px-4 py-4">
                             {source.lastError ? (
-                              <span className="text-red-700">{source.lastError}</span>
+                              <span className="text-red-700">{safeMessage(source.lastError)}</span>
                             ) : (
                               "—"
                             )}

@@ -2,10 +2,14 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link, NavLink, Navigate, useLocation } from "react-router";
 import { Database, FileUp, LogOut, ShieldCheck, UsersRound } from "lucide-react";
 import { getAdminSession, signOut } from "./adminAuth";
+import RequestError from "./components/RequestError";
 
 export function AdminGuard({ children }: { children: ReactNode }) {
   const [authorized, setAuthorized] = useState<boolean | null>(null); const location = useLocation();
-  useEffect(() => { let active = true; getAdminSession().then(() => { if (active) setAuthorized(true); }).catch(() => { if (active) setAuthorized(false); }); return () => { active = false; }; }, []);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => { let active = true; setError(null); getAdminSession().then(() => { if (active) setAuthorized(true); }).catch(reason => { if (active) { if (reason.message === "Admin session is missing.") setAuthorized(false); else setError(reason.message); } }); return () => { active = false; }; }, [attempt]);
+  if (error) return <main className="page-shell"><RequestError message={error} onRetry={() => setAttempt(value => value + 1)} /><Link to="/admin/login" className="button-secondary">Return to sign in</Link></main>;
   if (authorized === null) return <main className="grid min-h-screen place-items-center bg-slate-100"><div className="surface p-6 text-sm text-slate-600" role="status">Checking admin session…</div></main>;
   if (!authorized) return <Navigate to="/admin/login" replace state={{ from: location.pathname }} />;
   return <>{children}</>;

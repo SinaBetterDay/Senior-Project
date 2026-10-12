@@ -275,6 +275,8 @@ describe("POST /api/admin/upload/form700", () => {
 
     expect(res.status).toBe(500);
     expect(res.body.error).toMatch(/Failed to archive workbook/);
+    expect(res.body).not.toHaveProperty('stack');
+    expect(JSON.stringify(res.body)).not.toContain('bucket unavailable');
     expect(prisma.form700Filing.delete).toHaveBeenCalledWith({ where: { id: FILING_ID } });
     expect(prisma.form700Filing.update).not.toHaveBeenCalled();
   });

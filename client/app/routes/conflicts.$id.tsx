@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { usePublicData } from "../hooks/usePublicData";
+import RequestError from "../components/RequestError";
 import { Link, useParams, useSearchParams } from "react-router";
 
 type Conflict = {
@@ -37,31 +38,14 @@ export default function ConflictDetail() {
   const { id } = useParams();
   const [params] = useSearchParams();
   const back = `/conflicts${params.size ? `?${params.toString()}` : ""}`;
-  const [conflict, setConflict] = useState<Conflict | null>(null);
-  const [status, setStatus] = useState<"loading" | "missing" | "error" | "ready">("loading");
-
-  useEffect(() => {
-    const controller = new AbortController();
-    setStatus("loading");
-    fetch(`${API_URL}/api/conflicts/${encodeURIComponent(id ?? "")}`, { signal: controller.signal })
-      .then(async response => {
-        if (response.status === 404) { setStatus("missing"); return; }
-        if (!response.ok) throw new Error("Unable to load conflict");
-        const body = await response.json();
-        setConflict(body.data);
-        setStatus("ready");
-      })
-      .catch(error => { if (error.name !== "AbortError") setStatus("error"); });
-    return () => controller.abort();
-  }, [id]);
+  const { data: conflict, loading, error, retry } = usePublicData<Conflict>(`${API_URL}/api/conflicts/${encodeURIComponent(id ?? "")}`, "Conflict not found.");
 
   return <main className="min-h-screen bg-slate-50 text-slate-900">
     <div className="mx-auto max-w-4xl px-5 py-10">
       <Link to={back} className="text-sm font-semibold text-blue-700 hover:underline">← Back to conflicts</Link>
-      {status === "loading" && <p className="mt-12" role="status">Loading conflict…</p>}
-      {status === "missing" && <section className="mt-12"><h1 className="text-3xl font-bold">404 — Conflict not found</h1><p className="mt-3">This conflict ID does not exist or is no longer available.</p></section>}
-      {status === "error" && <section className="mt-12"><h1 className="text-3xl font-bold">Unable to load conflict</h1><p className="mt-3">Please try again later.</p></section>}
-      {status === "ready" && conflict && <>
+      {loading && <p className="mt-12" role="status">Loading conflict…</p>}
+      {error && <RequestError message={error} onRetry={retry} />}
+      {!loading && !error && conflict && <>
         <header className="mt-9 border-b border-slate-200 pb-7">
           <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">Conflict detail</p>
           <h1 className="mt-2 text-3xl font-bold">{conflict.politician.name}</h1>
