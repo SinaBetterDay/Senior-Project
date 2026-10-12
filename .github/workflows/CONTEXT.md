@@ -2,7 +2,7 @@
 
 ## Role
 
-CI and scheduled maintenance workflows for the monorepo.
+CI and scheduled maintenance workflows for the monorepo. 
 
 - **`test` job** — runs on every PR to `dev` / `main` and on push to `main`. Spins up a `postgres:15` service, then in `server/`: `npm ci` → `npx prisma generate` → `npx prisma migrate deploy` → `npm test` (vitest, `tests/unit`). `DATABASE_URL` and `DIRECT_URL` both point at the service container.
 - **`scheduled-legistar-sync.yml`** — runs `npm run sync:legistar` daily at 02:00 UTC or manually. Requires repository secrets `DATABASE_URL` and `DIRECT_URL`.
