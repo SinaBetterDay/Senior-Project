@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Download } from "lucide-react";
 import { AdminGuard, AdminNav } from "../adminComponents";
 import { adminFetch } from "../adminAuth";
 import RequestError from "../components/RequestError";
@@ -23,6 +24,8 @@ export default function AdminReportsPage() {
   const [politicians, setPoliticians] = useState<Politician[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -43,6 +46,47 @@ export default function AdminReportsPage() {
   const cities = [...new Set(politicians.map(politician => politician.city).filter(Boolean))].sort((left, right) => left.localeCompare(right));
   const selectedPolitician = politicians.find(politician => politician.id === politicianId);
   const scopeSummary = scope === "all" ? "All conflicts" : scope === "politician" ? selectedPolitician?.name ?? "Choose a politician" : scope === "city" ? city || "Choose a city" : `${startDate || "Start date"} to ${endDate || "End date"}`;
+  const scopeReady = scope === "all"
+    || (scope === "politician" && Boolean(politicianId))
+    || (scope === "city" && Boolean(city))
+    || (scope === "dateRange" && Boolean(startDate && endDate && startDate <= endDate));
+
+  async function downloadReport() {
+    setDownloading(true);
+    setDownloadError(null);
+    const filters = scope === "politician" ? { scope, politicianId }
+      : scope === "city" ? { scope, city }
+        : scope === "dateRange" ? { scope, startDate, endDate }
+          : { scope };
+    try {
+      const response = await adminFetch("/api/admin/reports/pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(filters),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error ?? "Could not generate the conflict report.");
+      }
+
+      const blobUrl = URL.createObjectURL(await response.blob());
+      const disposition = response.headers.get("Content-Disposition") ?? "";
+      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1]
+        ?? `fair-conflict-report-${new Date().toISOString().slice(0, 10)}.pdf`;
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = filename;
+      link.style.display = "none";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    } catch (downloadFailure) {
+      setDownloadError(downloadFailure instanceof Error ? downloadFailure.message : "Could not generate the conflict report.");
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return <AdminGuard>
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -84,8 +128,12 @@ export default function AdminReportsPage() {
 
         <section className="surface flex flex-wrap items-center justify-between gap-3 p-4" aria-live="polite">
           <div><h3 className="text-sm font-semibold">Selected scope</h3><p className="mt-1 text-sm text-slate-600">{scopeSummary}</p></div>
-          {loading && <span className="text-sm text-slate-500" role="status">Loading report filters…</span>}
+          <button type="button" onClick={downloadReport} disabled={loading || downloading || !scopeReady} className="inline-flex items-center gap-2 bg-emerald-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-50">
+            <Download size={16} />{downloading ? "Generating PDF…" : "Download PDF"}
+          </button>
         </section>
+        {downloadError && <p className="border-l-4 border-red-700 bg-red-50 px-3 py-2.5 text-sm text-red-900" role="alert">{downloadError}</p>}
+        {loading && <span className="text-sm text-slate-500" role="status">Loading report filters…</span>}
       </main>
     </div>
   </AdminGuard>;
