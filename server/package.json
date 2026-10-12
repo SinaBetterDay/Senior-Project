@@ -5,7 +5,7 @@
   "main": "src/index.js",
   "type": "module",
   "scripts": {
-    "start": "node src/index.js",
+    "start": "prisma generate && node src/index.js",
     "dev": "node --watch src/index.js",
     "sync:legistar": "node src/jobs/runNightlyLegistarSync.js",
     "run:apify-agendas": "node src/jobs/runApifyAgendaScrape.js",
