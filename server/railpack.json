@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "steps": {
+    "build": {
+      "inputs": [{ "step": "install" }],
+      "commands": ["...", "npx prisma generate"]
+    }
+  }
+}
