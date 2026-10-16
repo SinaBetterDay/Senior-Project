@@ -1,0 +1,348 @@
+"Summary","Issue key","Issue Type","Status","Project key","Project name","Project type","Priority","Labels","Description","Sprint","Custom field (Story point estimate)","Parent key"
+"Verify schema v2 migrations and fresh database deployment","SH-316","Story","To Do","SH","Software Hornets","software","Highest","Infastructure/DevOps","Verify the existing Prisma schema-v2 implementation rather than rebuilding it. Confirm that the checked-in schema, migration history, seed process, and raw-SQL mappings work on a clean database and on the current project database. This task is a prerequisite for ingestion and detection release validation.
+
+Acceptance criteria — definition of done
+
+* {{npx prisma validate}} and {{npx prisma generate}} complete successfully
+* {{npx prisma migrate deploy}} succeeds against a fresh PostgreSQL database with no manual SQL steps
+* Applying the migration history to a copy of the current database succeeds without destructive drift
+* Schedule A, A-2, B, C-D-E, data source, sync log, conflict, and review tables exist with the expected foreign keys and indexes
+* Prisma camelCase fields and mapped snake_case tables/columns are verified against the raw SQL used by ingestion jobs
+* {{npx prisma db seed}} completes and creates the documented sample data without duplicate rows on the supported workflow
+* Migration and rollback verification results are recorded in the task","SH Sprint 8","2","SH-175"
+"Verify backend shared libraries and admin authentication middleware","SH-317","Story","To Do","SH","Software Hornets","software","Highest","Infastructure/DevOps","Verify and finish the existing shared Prisma, Supabase authentication, and private Storage library layer used by all admin routes. This task validates the foundation; it must not create competing clients or duplicate middleware.
+
+Acceptance criteria — definition of done
+
+* {{server/src/lib/prisma.js}} remains the only location that constructs {{PrismaClient}}
+* {{requireAdmin}} returns 401 for missing, malformed, expired, and invalid tokens and attaches the verified user for a valid session
+* Valid users who are not authorized as FAIR administrators are rejected, or the single-admin account restriction is technically enforced and documented
+* Workbook archive, retrieval, and deletion helpers operate against the private {{form700-uploads}} bucket
+* Admin upload, source, report, sync, and politician endpoints all use the shared authentication guard
+* Server-only credentials are never exposed through {{VITE_*}} variables
+* Unit tests cover authorized, unauthenticated, invalid-token, and valid-but-unauthorized behavior","SH Sprint 8","3","SH-175"
+"Verify Express application wiring and production error handling","SH-318","Story","To Do","SH","Software Hornets","software","Highest","Infastructure/DevOps","Verify the existing Express application composition and close any remaining route, CORS, startup, or error-response gaps. {{app.js}} must remain importable without starting a listener so HTTP tests can exercise the real application.
+
+Acceptance criteria — definition of done
+
+* Public conflict, politician, agenda, and search routers are mounted under {{/api}}
+* Admin source, report, politician, sync, and upload routers are mounted behind the shared admin guard
+* {{GET /health}} returns 200 with a stable JSON contract
+* CORS permits only the configured client origin in production and supports local development through documented configuration
+* Unknown routes return a consistent 404 JSON response
+* Production errors do not expose stack traces, secrets, SQL, or internal filesystem paths
+* Upload size errors return 413 and ordinary validation failures return appropriate 4xx responses
+* Server startup and all backend JavaScript syntax checks complete without import errors","SH Sprint 8","2","SH-175"
+"Complete Form 700 ingestion rollback and reliability","SH-319","Story","To Do","SH","Software Hornets","software","Highest","Parsing/Processing","Finish the remaining reliability work in the existing Form 700 upload pipeline. The normal upload flow already parses schedules and archives the original workbook; this task closes failure cleanup and production-validation gaps.
+
+Acceptance criteria — definition of done
+
+* A valid authenticated XLSX upload creates one filing, links or creates the politician, inserts all supported schedule rows, archives the workbook, and returns schedule counts
+* Non-XLSX content, unsupported workbooks, oversized files, missing filer identity, and duplicate politician/year filings return clear 4xx responses
+* Database inserts remain atomic: parser or insert failure leaves no filing or schedule rows
+* If Storage upload succeeds but saving the archive path fails, the uploaded object and filing are both removed or recorded for deterministic cleanup
+* Cleanup failure is logged with enough information to recover the orphaned object without exposing secrets to the client
+* Representative real Form 700 workbooks are tested, including missing optional schedules and malformed input
+* The upload response contains the filing ID, politician ID, parsed schedule counts, and archive path
+* Automated tests cover the successful flow and every compensation/rollback path","SH Sprint 8","5","SH-175"
+"Verify Schedule A-2 parser coverage and supported scope","SH-320","Story","To Do","SH","Software Hornets","software","High","Parsing/Processing","Verify the existing Schedule A-2 parser, upload integration, persistence model, and detector input using representative Form 700 exports. Clearly define which A-2 sections are supported so the platform does not imply broader coverage than it provides.
+
+Acceptance criteria — definition of done
+
+* {{parseScheduleA2}} returns the documented snake_case fields and performs no database writes
+* Missing A-2 sheets return an empty result without failing the complete filing upload
+* Upload persists A-2 rows and reports the A2 count in its response
+* At least three representative workbooks are tested, including one with A-2 data, one without A-2, and one with repeated or irregular headers
+* Business-position conflict detection can query the stored rows through Prisma
+* Documentation states whether entity-held investments, property, and income sections beyond the current mapping are supported or deferred
+* Any unsupported A-2 content is captured in a follow-up backlog task rather than silently represented as complete coverage","SH Sprint 8","3","SH-175"
+"Unify manual and scheduled Apify PDF ingestion","SH-321","Story","To Do","SH","Software Hornets","software","Highest","Data_Ingestion","Replace the separate manual Apify import behavior with one shared Apify-to-PDF ingestion service used by admin-triggered sync, scheduled cron execution, and CLI execution. Document URLs alone are not agenda text and must not be stored as if they were parsed agenda items.
+
+Acceptance criteria — definition of done
+
+* Manual, scheduled, and CLI Apify runs call the same shared ingestion service
+* Each actor result is validated, downloaded with timeout and size limits, parsed through {{parsePdfAgenda}}, and upserted with the canonical deduplication key
+* Stored {{item_text}} contains parsed agenda content rather than only a PDF URL
+* Re-running the same dataset does not create duplicate agenda items
+* A failed, image-only, password-protected, oversized, or unavailable PDF is logged and skipped without stopping other documents
+* Data-source and sync-log records report documents found, PDFs fetched, agenda items inserted/skipped, and errors
+* Admin sync status polling reflects the same results as scheduled and CLI execution
+* Unit tests exercise all three entry points and live verification is completed against at least two representative California city sources","SH Sprint 8","8","SH-175"
+"Connect every agenda ingestion path to conflict detection","SH-322","Story","To Do","SH","Software Hornets","software","Highest","Conflict_Detection","Ensure that every successful agenda ingestion path invokes the same idempotent conflict-detection workflow. Legistar, Apify, manual, scheduled, and backfill runs must not differ in whether conflicts are generated.
+
+Acceptance criteria — definition of done
+
+* Newly inserted Legistar agenda items are sent to the shared conflict detector
+* Newly inserted or materially updated Apify/PDF agenda items are sent to the same detector
+* Admin-triggered sync and scheduled sync produce equivalent detection behavior
+* Sync summaries record candidate count, conflicts inserted, conflicts skipped as duplicates, and detection failures separately from ingestion failures
+* Detection failure does not incorrectly mark agenda ingestion as absent, and it remains retryable
+* Re-running detection does not create duplicate conflict records
+* Automated tests prove that each ingestion source can create a visible conflict candidate from matching disclosure data
+* Existing manual review decisions are preserved when the same candidate is encountered again","SH Sprint 8","5","SH-175"
+"Add disclosure-triggered redetection and detection retry/backfill","SH-323","Story","To Do","SH","Software Hornets","software","Highest","Conflict_Detection","Add an idempotent way to evaluate existing agenda items when a new or corrected Form 700 disclosure is uploaded. Also provide recovery for agenda items whose earlier conflict-detection attempt failed after ingestion.
+
+Acceptance criteria — definition of done
+
+* A successful Form 700 upload queues or invokes detection against the relevant existing agenda items
+* Detection scope is bounded by the agreed jurisdiction and date rules rather than scanning unrelated records
+* An authenticated admin can start a detection retry/backfill and inspect its run status
+* The job can resume or safely rerun after interruption without duplicate conflicts
+* Previously reviewed conflicts retain their review status and notes during redetection
+* Detection-run logs distinguish processed agenda items, candidates, inserted conflicts, duplicates, and failures
+* A failed detection run can be retried even when its agenda items were already inserted by an earlier ingestion run
+* Tests cover disclosure-after-agenda ordering, interrupted runs, repeated runs, and preservation of reviews","SH Sprint 8","8","SH-175"
+"Enforce jurisdiction and disclosure-period scope in conflict detection","SH-324","Story","To Do","SH","Software Hornets","software","Highest","Conflict_Detection","Prevent the detector from comparing every disclosure with every agenda item. Define and enforce which officials, jurisdictions, filing periods, and meeting dates are applicable to a candidate while preserving FAIR's role as a review tool rather than a legal determination system.
+
+Acceptance criteria — definition of done
+
+* The client-approved jurisdiction and filing-period rules are recorded in the executable conflict configuration and explanatory documentation
+* Detection loads only disclosures applicable to the agenda item's jurisdiction under the approved rules
+* Filing year and meeting date are retained through the detection adapters and used where required by the approved policy
+* Unresolved politician jurisdiction is handled explicitly and surfaced for admin review rather than silently matched across all cities
+* Cross-city and out-of-period disclosures do not generate candidates in automated tests
+* Same-city and applicable-period examples continue to generate expected candidates
+* Reprocessing after politician or jurisdiction correction updates candidates idempotently
+* Conflict output continues to identify the rule reference and supporting disclosure source","SH Sprint 8","8","SH-175"
+"Complete admin CRUD and politician review/reconciliation","SH-325","Story","To Do","SH","Software Hornets","software","High","Frontend/UI","Finish the existing authenticated administration APIs and UI so source configuration and automatically created politician profiles can be maintained safely. Extend the current needs-review display into an actionable reconciliation workflow.
+
+Acceptance criteria — definition of done
+
+* Admins can list, create, edit, enable/disable, sync, and delete supported data-source configurations with validation
+* Deleting a source preserves already ingested agenda items and returns a clear result
+* Admins can list, create, and edit politician profiles and cannot delete a profile with linked filings without an explicit supported resolution path
+* Admins can approve a {{needs_review}} politician and clear the review flag
+* Admins can merge or reconcile a mistaken duplicate while preserving filings, conflicts, votes, and review history
+* Concurrent or repeated reconciliation requests do not duplicate or lose linked records
+* All endpoints reject unauthenticated and unauthorized requests
+* API and component tests cover CRUD, blocked deletion, approval, and duplicate reconciliation","SH Sprint 8","8","SH-175"
+"Complete public conflict API filters, pagination, and contract","SH-326","Story","To Do","SH","Software Hornets","software","High","Infastructure/DevOps","Complete the public REST contract required by the conflicts dashboard and related public pages. Avoid loading the complete conflict table into memory as the dataset grows.
+
+Acceptance criteria — definition of done
+
+* {{GET /api/conflicts}} supports city, conflict type, severity, date range, review state where public, and approved sort options
+* Pagination uses a bounded page size and returns data, total, current page/cursor, and page-size metadata
+* Invalid filters, IDs, sort values, and page sizes return consistent 400 responses
+* Stable ordering prevents duplicate or missing rows while navigating pages
+* Conflict detail includes politician, agenda, city, meeting date, supporting schedule row, severity, and rule reference
+* Politician, agenda, and search endpoints retain consistent public error and response shapes
+* Database indexes and query plans are checked against a representative dataset and the agreed performance target
+* Frontend filters and pagination use the API contract, preserve URL state, and show loading, empty, and error states
+* Tests cover happy paths, combined filters, empty pages, invalid parameters, and unknown IDs","SH Sprint 8","5","SH-175"
+"Harden LLM-assisted entity resolution","SH-327","Story","To Do","SH","Software Hornets","software","High","Parsing/Processing","Finish the existing optional Gemini-assisted ambiguous entity matching path rather than introducing a second resolver. Deterministic normalization and fuzzy matching remain the primary path; the LLM is used only inside the agreed ambiguity band.
+
+Acceptance criteria — definition of done
+
+* Matching thresholds come from the shared conflict configuration and are not duplicated as conflicting magic numbers
+* Scores at or above the automatic threshold match without an LLM request and scores below the minimum are rejected without a request
+* Ambiguous scores call the configured Gemini model with a bounded prompt and structured JSON response requirement
+* Requests have an explicit timeout and failures use the client-approved deterministic fallback without throwing
+* Missing API configuration disables the optional LLM path safely and observably
+* Prompt content excludes secrets and is limited to the entity name and necessary agenda text
+* Development metrics report request count, latency, fallback count, and estimated usage without logging sensitive content
+* Unit tests cover every score band, true/false responses, malformed JSON, timeout, provider failure, and missing configuration
+* The configured model is verified against the production Google account before release","SH Sprint 8","5","SH-175"
+"End-to-end functional test: upload, sync, detect, review, and display","SH-328","Story","To Do","SH","Software Hornets","software","Highest","Testing/QA","Create the automated and documented end-to-end test that proves the platform's core user journey works as one system, including the ordering where agenda data exists before a disclosure is uploaded.
+
+Acceptance criteria — definition of done
+
+* A test environment is created from migrations and deterministic seed/fixture data
+* An authenticated admin uploads a Form 700 and the supported schedules are stored and archived
+* Legistar and Apify/PDF test paths ingest agenda items through their production services
+* Matching disclosure and agenda data creates a deduplicated conflict candidate
+* An admin reviews the conflict and the decision persists through redetection
+* The public dashboard, filters, conflict detail, politician profile, agenda page, search, CSV export, and PDF report display the expected data
+* The scenario where the agenda is ingested before the disclosure also creates the expected candidate
+* Failure scenarios cover unauthorized upload, malformed workbook, failed PDF, and retryable detection failure
+* The test runs through a documented script suitable for CI or a controlled staging environment","SH Sprint 8","8","SH-175"
+"Complete CI coverage and required release gates","SH-329","Story","To Do","SH","Software Hornets","software","Highest","Testing/QA","Expand the active CI workflow from backend-only validation into the complete release gate for the backend, frontend, documentation, Prisma migrations, and Apify Actor.
+
+Acceptance criteria — definition of done
+
+* CI runs on pull requests to {{dev}} and {{main}} and on the agreed protected-branch workflow
+* Backend dependency installation, Prisma generation, migration deployment, and unit tests pass against an isolated PostgreSQL service
+* Frontend dependency installation, tests, typecheck, and production build pass
+* Apify Actor tests and production build pass
+* Documentation navigation checks and their tests pass
+* End-to-end or controlled integration tests run at the agreed release stage without exposing production secrets
+* Required status checks are configured so failed gates block merge to protected branches
+* CI artifacts or logs make failures diagnosable without revealing credentials
+* A green run is recorded for the release candidate commit","SH Sprint 9","5","SH-175"
+"Verify admin authorization and production security controls","SH-330","Story","To Do","SH","Software Hornets","software","Highest","Infastructure/DevOps","Complete a focused production security review of authentication, authorization, uploads, public endpoints, dependencies, and service credentials before deployment. A valid Supabase account must not automatically receive admin access unless account creation is technically restricted to the approved administrator.
+
+Acceptance criteria — definition of done
+
+* Admin authorization is enforced by an allowlist, role/claim, or a documented and tested single-account provisioning control
+* Unauthenticated and valid-but-unauthorized users cannot call any admin endpoint
+* Public endpoints expose only intended fields and do not leak archived files, internal errors, or service credentials
+* Upload MIME, extension, size, malformed-file, and filename/path controls are tested
+* CORS, rate/abuse controls, dependency audit findings, and production headers are reviewed and release-blocking findings are resolved
+* Supabase Storage bucket privacy and access policies are verified in the production project
+* Basic load tests cover public list/search endpoints and sync triggers without exhausting database connections
+* Findings, severity, owner, and resolution evidence are recorded before launch","SH Sprint 9","5","SH-175"
+"Harden scheduler ownership, overlap prevention, and recovery","SH-331","Story","To Do","SH","Software Hornets","software","Highest","Infastructure/DevOps","Establish a single production scheduler strategy and make ingestion jobs safe when processes restart, runs overlap, or an external provider fails. This task operationalizes the existing node-cron jobs without adding an unapproved queue architecture.
+
+Acceptance criteria — definition of done
+
+* Production has exactly one documented scheduler owner for Legistar, Apify, and any detection/backfill jobs
+* {{CRON_ENABLED}} and schedule environment variables are configured consistently with that owner
+* Overlapping runs for the same source are rejected, skipped, or serialized using persisted run state
+* Runs left in {{running}} state after process termination are detectable and recoverable
+* Retried runs remain idempotent for agenda items and conflicts
+* One city/source failure does not stop independent sources and is reflected in sync logs
+* Time zone, schedule cadence, lookback windows, and retry policy are documented and tested
+* Restart and interruption tests demonstrate that the platform returns to a healthy state without manual database editing","SH Sprint 9","5","SH-175"
+"Admin system health, sync history, and retry page","SH-332","Story","To Do","SH","Software Hornets","software","High","Frontend/UI","Build the authenticated operational health page as a separate launch feature from the optional weekly email digest. The page should let the client understand ingestion/detection health and safely retry eligible failures.
+
+Acceptance criteria — definition of done
+
+* {{/admin/health}} is registered in the client route manifest and protected by the admin session guard
+* The page shows recent sync and detection runs with source, start/end time, status, counts, and safe error summaries
+* It shows the last successful Legistar and Apify run, current running jobs, and row counts for major operational tables
+* Eligible failed runs have a retry action that uses the shared idempotent pipeline rather than duplicating route-specific logic
+* Stale running jobs are identified and handled according to the scheduler recovery policy
+* The page refreshes automatically at a reasonable interval and supports a manual refresh
+* Loading, empty, partial-failure, unauthorized, and API-error states are accessible and understandable
+* API and component tests cover status display, refresh, retry, and unauthorized access","SH Sprint 9","5","SH-175"
+"Validate historical backfill and launch-city ingestion","SH-333","Story","To Do","SH","Software Hornets","software","High","Data_Ingestion","Validate that the production ingestion services can backfill the agreed historical period for every launch city without duplicate agenda items or missed conflict detection. This task uses representative live services and records limitations per city.
+
+Acceptance criteria — definition of done
+
+* The client-approved launch cities and required historical lookback period are listed in the task
+* Each Legistar city completes backfill through the production Legistar service and each document-only city through the shared Apify/PDF service
+* Re-running the backfill creates no duplicate agenda items or conflicts
+* Parsed text quality is sampled for each document-only city and image-only or unsupported documents are reported
+* Detection runs for all inserted or materially updated agenda items and records candidate/conflict counts
+* Partial city failures are retryable without restarting successful cities
+* Sync logs and the admin health page accurately report backfill progress and failures
+* Final item counts and known source limitations are recorded for client acceptance","SH Sprint 9","5","SH-175"
+"Add and validate the agreed additional California cities","SH-334","Story","To Do","SH","Software Hornets","software","Medium","Data_Ingestion","Configure and validate the additional California cities agreed for the launch scope after the shared ingestion pipelines are stable. Do not count a city as complete merely because a source record exists.
+
+Acceptance criteria — definition of done
+
+* At least three additional client-approved cities are configured with the correct source type and canonical source URL/actor configuration
+* Source validation succeeds and a manual sync completes for each city
+* Scheduled ingestion is enabled through the single approved scheduler path
+* Agenda items contain usable titles, dates, and text and do not duplicate on rerun
+* Matching test disclosures can produce conflict candidates for each source type represented
+* Failures and source limitations are visible in sync logs and the admin health page
+* Public city filters and politician/agenda pages display the new jurisdictions correctly
+* City configuration and acceptance results are recorded without including credentials","SH Sprint 9","5","SH-175"
+"Browser, responsive, and accessibility audit","SH-335","Story","To Do","SH","Software Hornets","software","High","Testing/QA","Audit the release candidate across supported browsers, responsive layouts, keyboard navigation, and basic WCAG requirements. Fix release-blocking findings before final regression.
+
+Acceptance criteria — definition of done
+
+* Landing, conflict list/detail, politician list/detail, agenda detail, search, login, upload, sources, reports, politician admin, and health pages are checked in current Chrome, Firefox, and Safari
+* Mobile and tablet layouts are checked at representative widths with no blocked controls or horizontal content loss
+* All form controls have programmatic labels and validation/error messages are announced appropriately
+* All interactive controls are keyboard reachable with visible focus and logical focus order
+* Images and meaningful icons have appropriate alternative text or accessible names
+* Severity and status indicators do not rely only on color and meet the agreed contrast target
+* Automated accessibility/Lighthouse checks meet the agreed threshold and manual findings are recorded
+* Release-blocking browser/accessibility defects are fixed and retested","SH Sprint 9","3","SH-175"
+"Pre-launch secrets and credential security audit","SH-336","Story","To Do","SH","Software Hornets","software","Highest","Infastructure/DevOps","Complete the security portion of the credential audit before production launch. Final credential ownership documentation and walkthrough are tracked separately in the backlog so documentation timing does not delay the necessary security gate.
+
+Acceptance criteria — definition of done
+
+* Tracked files and repository history are scanned for API keys, passwords, tokens, database URLs, private keys, and accidentally committed environment files
+* Any exposed secret is revoked and rotated before launch, with the incident recorded without copying the secret value
+* Production Supabase, Apify, Gemini, Resend if enabled, Railway, and Vercel credentials belong to approved client/team accounts
+* Server-only secrets are present only in server/deployment secret stores and no service-role or database secret is exposed through {{VITE_*}}
+* Environment-variable names required for production are compared against application usage and missing configuration fails clearly
+* Credential access is limited to the people who require it and account recovery/MFA status is verified where supported
+* The release record confirms the audit passed before go-live","SH Sprint 9","3","SH-175"
+"Final regression and client release acceptance","SH-337","Story","To Do","SH","Software Hornets","software","Highest","Testing/QA","Run the final automated and manual regression against the release candidate after all Sprint 8 functional work and Sprint 9 release gates are complete. This task is the final go/no-go checkpoint, not the first end-to-end test.
+
+Acceptance criteria — definition of done
+
+* Backend, frontend, documentation, Actor, typecheck, build, migration, and applicable end-to-end checks pass with zero release-blocking failures
+* Manual smoke testing covers public dashboard/filters, detail pages, search, admin login, upload, sources, health/retry, conflict review, CSV export, and PDF report
+* Both Legistar and Apify/PDF workflows are tested through ingestion to visible conflict output
+* Disclosure-after-agenda redetection and detection retry are tested
+* Authorization, malformed upload, unavailable PDF, partial source failure, and empty/error UI states are tested
+* Browser and accessibility findings classified as release blocking are closed
+* Known non-blocking limitations are documented and accepted by the client
+* Results, environment, tester, date, and evidence are recorded in the smoke-test checklist
+* Client approval and the final go/no-go decision are recorded before production cutover","SH Sprint 9","5","SH-175"
+"Production deployment, rollback rehearsal, and go-live","SH-338","Story","To Do","SH","Software Hornets","software","Highest","Infastructure/DevOps","Deploy the release candidate to client-owned frontend, backend, database, Storage, and integration accounts after functional and security gates pass. Rehearse migrations and rollback before the final production cutover.
+
+Acceptance criteria — definition of done
+
+* Frontend and backend are deployed under client-owned accounts and the backend health endpoint returns 200
+* Production database migrations are applied from the checked-in migration history with a verified pre-deploy backup/recovery point
+* Required server and browser environment variables are configured with no server secret exposed to the frontend
+* Scheduler ownership and {{CRON_ENABLED}} are set according to the approved operations plan
+* Frontend calls the production API and public pages display production data
+* Production admin login, Form 700 upload/archive, manual sync, detection, review, CSV export, and PDF report pass a smoke test
+* Rollback is rehearsed in staging or an equivalent safe environment and the production rollback decision points are recorded
+* Monitoring/health checks are enabled and the client confirms access to every deployed service and public URL
+* Go-live occurs only after SH-337 release acceptance passes","SH Sprint 9","5","SH-175"
+"Developer handoff README and clean-machine setup verification","SH-339","Story","To Do","SH","Software Hornets","software","Medium","Docs/Handoff","Finalize the developer handoff documentation only after architecture, commands, deployment, and operational behavior have stabilized. The document must enable a new developer to understand and run the platform without undocumented tribal knowledge.
+
+Acceptance criteria — definition of done
+
+* README explains the product purpose, review-not-determination boundary, active architecture, and major data flows
+* Local setup covers backend, frontend, Actor, PostgreSQL/Supabase, Storage, migrations, seed data, and required non-secret environment variables
+* Development, test, typecheck, build, sync, and deployment commands match the checked-in package scripts
+* Documentation identifies active routes/jobs and clearly marks disabled, legacy, or optional components
+* Architecture and deployment diagrams or references reflect the final implementation
+* A team member follows the instructions on a clean machine and reaches a working local environment without verbal help
+* Documentation validation commands pass and the verification date/person are recorded","","3","SH-175"
+"Credentials inventory and client ownership walkthrough","SH-340","Story","To Do","SH","Software Hornets","software","Medium","Docs/Handoff","Create the final non-secret credential inventory and walk the client through ownership, access, regeneration, and rotation after production configuration is stable. This task must never place actual credential values in Jira or the repository.
+
+Acceptance criteria — definition of done
+
+* {{docs/credentials.md}} lists every environment-variable name, purpose, service, deployment location, and whether it is server-only or browser-safe
+* The document identifies the owning client account and where an authorized owner can regenerate or rotate each credential
+* No actual token, password, API key, database URL, or private identifier is included
+* Supabase, Vercel, Railway, GitHub, Apify, Gemini, and Resend if enabled ownership is confirmed
+* At least one client representative independently signs in to each required service and confirms recovery access
+* Rotation and offboarding steps are documented
+* The client acknowledges receipt of the inventory and walkthrough","","2","SH-175"
+"Operations, backup, restore, and incident runbook","SH-341","Story","To Do","SH","Software Hornets","software","Medium","Docs/Handoff","Document the final operational procedures that were already exercised during production readiness. This is the polished handoff artifact; testing backup, restore, retry, and rollback remains a pre-launch responsibility.
+
+Acceptance criteria — definition of done
+
+* Runbook explains normal Legistar, Apify, detection, and digest schedules and how to verify their health
+* Procedures cover retrying failed sync/detection runs, resolving stale running jobs, and disabling the scheduler safely
+* Backup and restore procedures cover the database and archived Form 700 Storage objects
+* Deployment rollback steps identify when to roll back application code versus database changes
+* Incident steps cover unavailable upstream sources, failed migrations, Storage failures, exposed credentials, and incorrect conflict output
+* Escalation contacts and client-owned service locations are documented without secret values
+* A developer other than the author walks through the runbook and records corrections","","3","SH-175"
+"Weekly conflict digest email","SH-342","Story","To Do","SH","Software Hornets","software","Low","Notifications","Add the optional weekly client digest only after conflict detection and production scheduling are stable. The digest summarizes review candidates; it must not describe them as confirmed legal conflicts.
+
+Acceptance criteria — definition of done
+
+* Digest scheduling uses the approved single scheduler owner and a configurable time zone/schedule
+* Recipient addresses are configured through a server-only environment variable or approved database setting
+* Email includes the count of new review candidates and links to their detail pages, or a clear no-new-candidates message
+* Wording states that results are potential conflicts requiring human review
+* Resend failures are recorded and retryable without sending duplicate digests
+* An authenticated admin can send a test digest through a non-GET action
+* Recipient, message content, and provider responses are not logged inappropriately
+* Unit tests cover candidates, empty week, provider failure, retry, and duplicate prevention","","3","SH-175"
+"Votes ingestion and conflict-detail display (optional)","SH-343","Story","To Do","SH","Software Hornets","software","Low","Data_Ingestion","After client approval, either implement Legistar vote ingestion and display or remove the unused vote model through a migration. Vote context is optional and must not block the core disclosure-versus-agenda platform launch.
+
+Acceptance criteria — definition of done
+
+* Client decision to keep or remove vote functionality is recorded
+* If removed, the unused model/table and dead helper code are removed through a reviewed migration and tests remain green
+* If kept, Legistar votes are fetched without stopping agenda ingestion when the vote endpoint fails
+* Vote records are upserted idempotently and linked to the correct agenda item and politician
+* Name resolution does not create uncontrolled duplicate politician profiles and unresolved names are surfaced for review
+* Conflict detail returns and displays Yes, No, Abstain, Absent, or No vote recorded as applicable
+* Re-running ingestion creates no duplicate vote records
+* Tests cover successful ingestion, unknown politician, unavailable endpoint, and repeated runs","","3","SH-175"
+"Expand Schedule A-2 entity-held asset and income coverage (optional)","SH-344","Story","To Do","SH","Software Hornets","software","Low","Parsing/Processing","If the client requires broader Schedule A-2 coverage, ingest the entity-held investments, real property, and income sections that are outside the initial business-position mapping. Keep this work separate from verifying the existing A-2 parser.
+
+Acceptance criteria — definition of done
+
+* Client confirms which additional A-2 sections are required and how they affect conflict rules
+* Schema changes preserve source section, entity relationship, values/ranges, and filing linkage without overloading unrelated fields
+* Parser handles repeated section headers and multiple held assets within one entity
+* Upload persists the new rows atomically and reports their counts
+* Detection rules consume the additional rows only after client-approved applicability and exclusion rules are documented
+* Representative real workbooks cover each added section and missing sections remain non-fatal
+* Public/admin output identifies the supporting A-2 section without overstating legal conclusions
+* Migration, parser, upload, detector, and API tests pass","","5","SH-175"
