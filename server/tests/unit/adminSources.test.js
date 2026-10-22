@@ -21,9 +21,13 @@ vi.mock('../../src/ingestion/legistarApi.js', () => ({
   getAgendaItems: vi.fn(),
   getVotes: vi.fn(),
 }));
+vi.mock('../../src/ingestion/apifyAgenda.js', () => ({
+  ingestApifyAgendaItems: vi.fn(),
+}));
 
 import { prisma } from '../../src/lib/prisma.js';
 import { ApifyClient } from 'apify-client';
+import { ingestApifyAgendaItems } from '../../src/ingestion/apifyAgenda.js';
 import { getAgendaItems, getMeetings } from '../../src/ingestion/legistarApi.js';
 import sourcesRouter from '../../src/routes/admin/sources.js';
 
@@ -70,9 +74,21 @@ beforeEach(() => {
     startedAt: new Date('2026-09-27T12:00:00.000Z'),
     completedAt: null,
     itemsFound: 0,
+    documentsFound: 0,
+    pdfsFetched: 0,
+    documentsSkipped: 0,
     itemsInserted: 0,
     itemsSkipped: 0,
     errors: null,
+  });
+  ingestApifyAgendaItems.mockResolvedValue({
+    cityName: 'Elk Grove',
+    documentsFound: 1,
+    pdfsFetched: 1,
+    documentsSkipped: 0,
+    itemsInserted: 2,
+    itemsSkipped: 0,
+    errors: [],
   });
   prisma.$transaction.mockImplementation((operations) => Promise.all(operations));
 });
@@ -216,7 +232,7 @@ describe('on-demand source sync', () => {
 
   it('returns document links without exposing non-URL content', async () => {
     prisma.agendaItem.findMany.mockResolvedValue([
-      { id: 'pdf', title: 'Agenda', itemText: 'https://city.gov/a.pdf', meetingDate: null },
+      { id: 'pdf', title: 'Agenda', itemText: 'Parsed council agenda text', sourceUrl: 'https://city.gov/a.pdf', meetingDate: null },
       { id: 'text', itemText: 'not a URL' },
     ]);
     const response = await request(app).get('/api/admin/sources/source-1/documents');
@@ -228,7 +244,12 @@ describe('on-demand source sync', () => {
     prisma.dataSource.findUnique.mockResolvedValue({ id: 'source-1', cityName: 'Example', sourceType: 'apify', apifyActorId: 'finder' });
     ApifyClient.mockImplementation(function () { return { actor: () => ({ call: async () => ({ status: 'FAILED', statusMessage: 'No unique official website' }) }) }; });
     await request(app).post('/api/admin/sources/source-1/sync');
-    await vi.waitFor(() => expect(prisma.syncLog.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'failed', errors: { message: 'Actor FAILED: No unique official website' } }) })));
+    await vi.waitFor(() => expect(prisma.syncLog.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        status: 'failed',
+        errors: [{ message: 'Actor FAILED: No unique official website' }],
+      }),
+    })));
     expect(prisma.agendaItem.createMany).not.toHaveBeenCalled();
   });
 
@@ -263,6 +284,9 @@ describe('on-demand source sync', () => {
       startedAt: new Date('2026-09-27T12:00:00.000Z'),
       completedAt: new Date('2026-09-27T12:01:00.000Z'),
       itemsFound: 5,
+      documentsFound: 5,
+      pdfsFetched: 4,
+      documentsSkipped: 1,
       itemsInserted: 3,
       itemsSkipped: 2,
       errors: null,
@@ -275,8 +299,12 @@ describe('on-demand source sync', () => {
       id: 'sync-1',
       status: 'success',
       itemsFound: 5,
+      documentsFound: 5,
+      pdfsFetched: 4,
+      documentsSkipped: 1,
       itemsInserted: 3,
       itemsSkipped: 2,
+      errors: null,
       error: null,
     });
     expect(prisma.syncLog.findFirst).toHaveBeenCalledWith({
@@ -284,7 +312,7 @@ describe('on-demand source sync', () => {
     });
   });
 
-  it('runs the configured Apify actor and persists its agenda items', async () => {
+  it('routes the configured Apify actor dataset through the shared PDF ingestion service', async () => {
     vi.stubEnv('APIFY_TOKEN', 'account-token');
     prisma.dataSource.findUnique.mockResolvedValue({
       id: 'source-1',
@@ -309,14 +337,12 @@ describe('on-demand source sync', () => {
     await vi.waitFor(() => expect(datasetListItems).toHaveBeenCalledWith({ limit: 1000, offset: 0 }));
     expect(actor).toHaveBeenCalledWith('fair/agenda-scraper');
     expect(actorCall).toHaveBeenCalledWith({ cityName: 'Elk Grove' }, { timeout: 600 });
-    await vi.waitFor(() => expect(prisma.agendaItem.createMany).toHaveBeenCalledWith({
-      data: [expect.objectContaining({
-        sourceType: 'apify',
-        cityId: 'source-1',
-        cityName: 'Elk Grove',
-        title: 'Council agenda',
-        itemText: 'https://city.gov/agenda.pdf',
-      })],
+    await vi.waitFor(() => expect(ingestApifyAgendaItems).toHaveBeenCalledWith({
+      items: [{ pdf_url: 'https://city.gov/agenda.pdf', title: 'Council agenda', meeting_date: '2026-10-01' }],
+      source: expect.objectContaining({ id: 'source-1', cityName: 'Elk Grove', apifyActorId: 'fair/agenda-scraper' }),
+      syncLogId: 'sync-1',
+      log: console.log,
     }));
+    expect(prisma.agendaItem.createMany).not.toHaveBeenCalled();
   });
 });

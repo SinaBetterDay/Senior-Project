@@ -4,6 +4,7 @@ import { syncErrorMessage } from '../../utils/syncErrorMessage.js';
 import { requireAdmin } from '../../lib/auth.js';
 import { ApifyClient } from 'apify-client';
 import { prisma } from '../../lib/prisma.js';
+import { ingestApifyAgendaItems } from '../../ingestion/apifyAgenda.js';
 import { getAgendaItems, getMeetings } from '../../ingestion/legistarApi.js';
 
 const router = express.Router();
@@ -137,59 +138,34 @@ async function runLegistarSource(source) {
   };
 }
 
-async function runApifySource(source) {
+async function runApifySource(source, syncLogId) {
   if (!process.env.APIFY_TOKEN) throw new Error('Apify is not configured on the server (APIFY_TOKEN is missing).');
+  const actorId = source.apifyActorId ?? process.env.APIFY_ACTOR_ID;
+  if (!actorId) throw new Error('Apify is not configured on the server (APIFY_ACTOR_ID is missing).');
 
   const client = new ApifyClient({ token: process.env.APIFY_TOKEN });
-  const run = await client.actor(source.apifyActorId).call({
+  const run = await client.actor(actorId).call({
     cityName: source.cityName,
     ...(source.startUrl ? { startUrl: source.startUrl } : {}),
   }, { timeout: 600 });
   if (run.status && run.status !== 'SUCCEEDED') throw new Error(`Actor ${run.status}: ${run.statusMessage || 'Check the Apify run log.'}`);
+  if (!run.defaultDatasetId) throw new Error('Apify actor run did not return a dataset ID.');
   const items = [];
   for (let offset = 0; ; offset += 1000) {
     const page = await client.dataset(run.defaultDatasetId).listItems({ limit: 1000, offset });
     items.push(...(page.items ?? []));
     if ((page.items?.length ?? 0) < 1000) break;
   }
-  const existing = await prisma.agendaItem.findMany({
-    where: { cityId: source.id },
-    select: { itemText: true },
-  });
-  const existingItemTexts = new Set(existing.map((item) => item.itemText).filter(Boolean));
-  const seenItemTexts = new Set();
-  const rows = items.flatMap((item) => {
-    const url = item.pdf_url ?? item.pdfUrl ?? item.agenda_url ?? item.url ?? null;
-    const title = item.document_title ?? item.title ?? item.agenda_title ?? item.agendaTitle ?? item.name ?? (url ? 'Agenda PDF' : null);
-    const itemText = url ?? item.text ?? item.description ?? JSON.stringify(item);
-    if (existingItemTexts.has(itemText) || seenItemTexts.has(itemText)) return [];
-    seenItemTexts.add(itemText);
-
-    const date = item.meeting_date ?? item.meetingDate ?? null;
-    return [{
-      sourceType: 'apify',
-      cityId: source.id,
-      cityName: source.cityName,
-      title: String(title ?? 'Untitled agenda item'),
-      description: item.description ? String(item.description) : null,
-      itemText: String(itemText),
-      meetingDate: date && !Number.isNaN(Date.parse(date)) ? new Date(date) : null,
-    }];
-  });
-
-  if (rows.length) await prisma.agendaItem.createMany({ data: rows });
-  return {
-    itemsFound: items.length,
-    itemsInserted: rows.length,
-    itemsSkipped: items.length - rows.length,
-  };
+  return ingestApifyAgendaItems({ items, source: { ...source, apifyActorId: actorId }, syncLogId, log: console.log });
 }
 
 async function executeSourceSync(source, syncLogId) {
   try {
-    const result = source.sourceType.toLowerCase() === 'legistar'
-      ? await runLegistarSource(source)
-      : await runApifySource(source);
+    if (source.sourceType.toLowerCase() !== 'legistar') {
+      await runApifySource(source, syncLogId);
+      return;
+    }
+    const result = await runLegistarSource(source);
     const completedAt = new Date();
 
     await prisma.$transaction([
@@ -213,11 +189,22 @@ async function executeSourceSync(source, syncLogId) {
     await prisma.$transaction([
       prisma.syncLog.update({
         where: { id: syncLogId },
-        data: { status: 'failed', completedAt, errors: { message: error.message } },
+        data: {
+          status: 'failed',
+          completedAt,
+          errors: [{ message: error.message }],
+        },
       }),
       prisma.dataSource.update({
         where: { id: source.id },
-        data: { lastError: error.message },
+        data: {
+          lastError: error.message,
+          lastDocumentsFound: 0,
+          lastPdfsFetched: 0,
+          lastItemsInserted: 0,
+          lastItemsSkipped: 0,
+          lastSyncErrors: [{ message: error.message }],
+        },
       }),
     ]);
   }
@@ -251,6 +238,11 @@ router.get('/', requireAdmin, async (req, res) => {
         startUrl: source.startUrl,
         enabled: source.enabled,
         lastSyncTime: source.lastSyncedAt,
+        documentsFound: source.lastDocumentsFound,
+        pdfsFetched: source.lastPdfsFetched,
+        itemsInserted: source.lastItemsInserted,
+        itemsSkipped: source.lastItemsSkipped,
+        syncErrors: source.lastSyncErrors,
         totalAgendaItems,
         lastError: syncErrorMessage(latestSync?.errors) ?? syncErrorMessage(source.lastError),
         status: latestSync?.status ?? (source.enabled ? 'ready' : 'disabled'),
@@ -289,12 +281,18 @@ router.get('/:id/documents', requireAdmin, async (req, res) => {
   try {
     const rows = await prisma.agendaItem.findMany({
       where: { cityId: req.params.id, sourceType: 'apify' },
-      select: { id: true, title: true, itemText: true, meetingDate: true },
+      select: { id: true, title: true, itemText: true, sourceUrl: true, meetingDate: true },
       orderBy: { meetingDate: 'desc' }, take: 200,
     });
-    return res.json(rows.filter((row) => /^https?:\/\//i.test(row.itemText ?? '')).map((row) => ({
-      id: row.id, title: row.title, pdfUrl: row.itemText, meetingDate: row.meetingDate,
-    })));
+    return res.json(rows.flatMap((row) => {
+      const pdfUrl = row.sourceUrl ?? (/^https?:\/\//i.test(row.itemText ?? '') ? row.itemText : null);
+      return pdfUrl ? [{
+        id: row.id,
+        title: row.title,
+        pdfUrl,
+        meetingDate: row.meetingDate,
+      }] : [];
+    }));
   } catch {
     return res.status(500).json({ error: 'Failed to load agenda documents.' });
   }
@@ -364,8 +362,12 @@ router.get('/:id/sync/:syncLogId', requireAdmin, async (req, res) => {
       startedAt: syncLog.startedAt,
       completedAt: syncLog.completedAt,
       itemsFound: syncLog.itemsFound,
+      documentsFound: syncLog.documentsFound,
+      pdfsFetched: syncLog.pdfsFetched,
+      documentsSkipped: syncLog.documentsSkipped,
       itemsInserted: syncLog.itemsInserted,
       itemsSkipped: syncLog.itemsSkipped,
+      errors: syncLog.errors,
       error: syncErrorMessage(syncLog.errors),
     });
   } catch (error) {

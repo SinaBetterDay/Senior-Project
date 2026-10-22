@@ -14,7 +14,10 @@ Ingest **city council agendas** for cross-reference with Form 700 data.
 
 - City-specific quirks (URLs, selectors, Legistar endpoints) should be documented next to the code that uses them.
 - Normalize to a **common internal shape** before entity matching (see `../entity-resolution/CONTEXT.md`).
-- `server/src/jobs/runApifyAgendaScrape.js` owns Apify → PDF download → parse → Prisma upsert. Downloads time out after 30 seconds, are limited to 20 MB, and retry safely using `(city_id, meeting_date, item_number)`.
+- `server/src/ingestion/apifyAgenda.js` is the shared Apify → PDF download → `parsePdfAgenda` → Prisma upsert service used by admin sync and the scheduled/CLI scrape job. Downloads time out after 30 seconds, are streamed with a 20 MB limit, and upsert using `(city_id, meeting_date, item_number)`.
+- Apify results are document references, not agenda items: the PDF must yield extractable agenda text before any `agenda_items` row is written. A failed, unreadable, password-protected, image-only, or oversized PDF is recorded as a skipped document and does not stop the remaining documents.
+- The original PDF link is retained in `agenda_items.source_url` for admin document links; `item_text` contains only parsed agenda content.
+- Apify sync-log and data-source metrics distinguish documents found, PDFs fetched, documents skipped, agenda items inserted/skipped, and per-document errors. Admin polling reads the same persisted run results used by scheduled and CLI execution.
 
 ## Related docs
 

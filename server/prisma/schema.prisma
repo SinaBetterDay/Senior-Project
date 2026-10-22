@@ -100,6 +100,7 @@ model AgendaItem {
   sourceType  String    @default("legistar") @map("source_type")
   /// Raw agenda text for a single item (PDF / Apify sources).
   itemText    String?   @map("item_text")
+  sourceUrl   String?   @map("source_url")
   /// Free-form city identifier used by the PDF/Apify pipelines before a
   /// Jurisdiction row exists.
   cityId      String?   @map("city_id")
@@ -311,6 +312,11 @@ model DataSource {
   enabled         Boolean       @default(true)
   lastSyncedAt    DateTime?     @map("last_synced_at")
   lastError       String?       @map("last_error")
+  lastDocumentsFound Int        @default(0) @map("last_documents_found")
+  lastPdfsFetched    Int        @default(0) @map("last_pdfs_fetched")
+  lastItemsInserted  Int        @default(0) @map("last_items_inserted")
+  lastItemsSkipped   Int        @default(0) @map("last_items_skipped")
+  lastSyncErrors     Json?      @map("last_sync_errors")
   jurisdictionId  String?       @map("jurisdiction_id") @db.Uuid
   jurisdiction    Jurisdiction? @relation(fields: [jurisdictionId], references: [id], onDelete: SetNull)
   createdAt       DateTime      @default(now()) @map("created_at")
@@ -330,6 +336,9 @@ model SyncLog {
   startedAt       DateTime    @default(now()) @map("started_at")
   completedAt     DateTime?   @map("completed_at")
   itemsFound      Int         @default(0) @map("items_found")
+  documentsFound  Int         @default(0) @map("documents_found")
+  pdfsFetched     Int         @default(0) @map("pdfs_fetched")
+  documentsSkipped Int        @default(0) @map("documents_skipped")
   itemsInserted   Int         @default(0) @map("items_inserted")
   itemsSkipped    Int         @default(0) @map("items_skipped")
   conflictsDetected Int       @default(0) @map("conflicts_detected")
