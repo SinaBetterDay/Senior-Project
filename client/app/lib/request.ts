@@ -4,6 +4,16 @@ export const TIMEOUT_MESSAGE = "The server took too long to respond. Check your 
 
 export type RequestOptions = RequestInit & { timeoutMs?: number };
 
+function requestUrl(input: RequestInfo | URL) {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.toString();
+  return input.url;
+}
+
+function requestId() {
+  return `fair-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 /** Keep actionable messages, but never display serialized exceptions or HTML. */
 export function safeMessage(value: unknown, fallback = "The request could not be completed. Please try again."): string {
   const message = value instanceof Error ? value.message : value;
@@ -15,6 +25,15 @@ export function safeMessage(value: unknown, fallback = "The request could not be
 /** Deadline includes reading the response body; caller cancellation stays silent. */
 export async function request(input: RequestInfo | URL, init: RequestOptions = {}): Promise<Response> {
   const { timeoutMs = REQUEST_TIMEOUT_MS, ...fetchInit } = init;
+  const startedAt = performance.now();
+  const url = requestUrl(input);
+  const method = fetchInit.method ?? (input instanceof Request ? input.method : "GET");
+  const headers = new Headers(fetchInit.headers ?? (input instanceof Request ? input.headers : undefined));
+  const id = headers.get("X-Request-ID") ?? requestId();
+  headers.set("X-Request-ID", id);
+  fetchInit.headers = headers;
+  let stage: "waiting-for-headers" | "reading-body" = "waiting-for-headers";
+  console.debug(`[request:${id}] start`, { method, url, timeoutMs });
   const controller = new AbortController();
   const abort = () => controller.abort();
   if (fetchInit.signal?.aborted) throw new DOMException("Cancelled", "AbortError");
@@ -31,15 +50,32 @@ export async function request(input: RequestInfo | URL, init: RequestOptions = {
     return await Promise.race([
       (async () => {
         const response = await fetch(input, { ...fetchInit, signal: controller.signal });
+        stage = "reading-body";
+        console.debug(`[request:${id}] headers`, {
+          status: response.status,
+          elapsedMs: Math.round(performance.now() - startedAt),
+          serverRequestId: response.headers.get("X-Request-ID"),
+        });
         // Consume a clone within the deadline, leaving the response API intact.
         await response.clone().arrayBuffer();
+        console.debug(`[request:${id}] complete`, {
+          status: response.status,
+          elapsedMs: Math.round(performance.now() - startedAt),
+        });
         return response;
       })(),
       cancellation,
     ]);
   } catch (error) {
-    if (timedOut) throw new Error(TIMEOUT_MESSAGE);
-    if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
+    if (timedOut) {
+      console.error(`[request:${id}] timeout`, { method, url, stage, timeoutMs, elapsedMs: Math.round(performance.now() - startedAt) });
+      throw new Error(`${TIMEOUT_MESSAGE} Request ID: ${id}`);
+    }
+    if (controller.signal.aborted) {
+      console.debug(`[request:${id}] cancelled`, { method, url, stage, elapsedMs: Math.round(performance.now() - startedAt) });
+      throw new DOMException("Cancelled", "AbortError");
+    }
+    console.error(`[request:${id}] network-error`, { method, url, stage, elapsedMs: Math.round(performance.now() - startedAt), errorName: error instanceof Error ? error.name : typeof error });
     throw new Error("We couldn’t connect to the server. Check your connection and try again.");
   } finally {
     clearTimeout(timer);

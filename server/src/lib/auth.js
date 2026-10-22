@@ -25,18 +25,24 @@ export function extractBearerToken(headerValue) {
 }
 
 export async function requireAdmin(req, res, next) {
+  const startedAt = performance.now();
+  const id = req.requestId ?? 'unknown';
   try {
     const token = extractBearerToken(req.headers?.authorization);
     if (!token) {
+      console.warn(`[auth:${id}] missing bearer token ${Math.round(performance.now() - startedAt)}ms`);
       return res.status(401).json(UNAUTHORIZED);
     }
 
+    console.info(`[auth:${id}] verifying Supabase user`);
     const { data, error } = await supabase.auth.getUser(token);
     if (error || !data?.user) {
+      console.warn(`[auth:${id}] rejected ${Math.round(performance.now() - startedAt)}ms`);
       return res.status(401).json(UNAUTHORIZED);
     }
 
     req.user = data.user;
+    console.info(`[auth:${id}] verified ${Math.round(performance.now() - startedAt)}ms`);
     return next();
   } catch (err) {
     console.error('[auth] requireAdmin failed:', err?.message ?? err);

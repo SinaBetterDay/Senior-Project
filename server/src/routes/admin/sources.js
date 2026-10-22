@@ -1,7 +1,6 @@
 // server/src/routes/admin/sources.js
 import express from 'express';
 import { syncErrorMessage } from '../../utils/syncErrorMessage.js';
-import { requireAdmin } from '../../lib/auth.js';
 import { ApifyClient } from 'apify-client';
 import { prisma } from '../../lib/prisma.js';
 import { getAgendaItems, getMeetings } from '../../ingestion/legistarApi.js';
@@ -258,9 +257,13 @@ async function executeSourceSync(source, syncLogId) {
   }
 }
 
-router.get('/', requireAdmin, async (req, res) => {
+router.get('/', async (req, res) => {
+  const startedAt = performance.now();
+  const id = req.requestId ?? 'unknown';
   try {
+    console.info(`[sources:${id}] loading source rows`);
     const sources = await prisma.dataSource.findMany({ orderBy: { cityName: 'asc' } });
+    console.info(`[sources:${id}] loaded ${sources.length} source rows in ${Math.round(performance.now() - startedAt)}ms; loading counts and sync status`);
     const rows = await Promise.all(sources.map(async (source) => {
       const [totalAgendaItems, latestSync] = await Promise.all([
         prisma.agendaItem.count({
@@ -291,6 +294,8 @@ router.get('/', requireAdmin, async (req, res) => {
         status: latestSync?.status ?? (source.enabled ? 'ready' : 'disabled'),
       };
     }));
+
+    console.info(`[sources:${id}] complete ${rows.length} rows in ${Math.round(performance.now() - startedAt)}ms`);
     return res.json(rows);
   } catch (err) {
     console.error('[admin/sources] failed to load sources', err);
@@ -299,7 +304,7 @@ router.get('/', requireAdmin, async (req, res) => {
 });
 
 // Create/reuse a city source and start discovery without waiting for the crawl.
-router.post('/discover', requireAdmin, async (req, res) => {
+router.post('/discover', async (req, res) => {
   try {
     const cityName = typeof req.body.cityName === 'string' ? req.body.cityName.trim() : '';
     if (!cityName || cityName.length > 100) return res.status(400).json({ error: 'Enter a California city name (1–100 characters).' });
@@ -320,7 +325,7 @@ router.post('/discover', requireAdmin, async (req, res) => {
   }
 });
 
-router.get('/:id/documents', requireAdmin, async (req, res) => {
+router.get('/:id/documents', async (req, res) => {
   try {
     const rows = await prisma.agendaItem.findMany({
       where: { cityId: req.params.id, sourceType: 'apify' },
@@ -335,7 +340,7 @@ router.get('/:id/documents', requireAdmin, async (req, res) => {
   }
 });
 
-router.post('/', requireAdmin, async (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const source = await prisma.dataSource.create({ data: await validateSourceInput(req.body) });
     return res.status(201).json(source);
@@ -344,7 +349,7 @@ router.post('/', requireAdmin, async (req, res) => {
   }
 });
 
-router.put('/:id', requireAdmin, async (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
     const source = await prisma.dataSource.update({
       where: { id: req.params.id },
@@ -357,7 +362,7 @@ router.put('/:id', requireAdmin, async (req, res) => {
   }
 });
 
-router.delete('/:id', requireAdmin, async (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
     // Agenda items are not deleted with a source; sync-log references use SET NULL.
     await prisma.dataSource.delete({ where: { id: req.params.id } });
@@ -369,7 +374,7 @@ router.delete('/:id', requireAdmin, async (req, res) => {
   }
 });
 
-router.post('/:id/sync', requireAdmin, async (req, res) => {
+router.post('/:id/sync', async (req, res) => {
   try {
     const source = await prisma.dataSource.findUnique({ where: { id: req.params.id } });
     if (!source) return res.status(404).json({ error: 'Source not found.' });
@@ -387,7 +392,7 @@ router.post('/:id/sync', requireAdmin, async (req, res) => {
   }
 });
 
-router.get('/:id/sync/:syncLogId', requireAdmin, async (req, res) => {
+router.get('/:id/sync/:syncLogId', async (req, res) => {
   try {
     const syncLog = await prisma.syncLog.findFirst({
       where: { id: req.params.syncLogId, dataSourceId: req.params.id },

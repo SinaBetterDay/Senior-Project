@@ -2,10 +2,6 @@ import express from 'express';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../src/lib/auth.js', () => ({
-  requireAdmin: (_req, _res, next) => next(),
-}));
-
 vi.mock('../../src/lib/prisma.js', () => ({
   prisma: {
     dataSource: { create: vi.fn(), update: vi.fn(), delete: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() },

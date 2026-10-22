@@ -27,6 +27,7 @@ export const app = express();
 app.use(
   cors({
     origin: process.env.CLIENT_ORIGIN ?? 'http://localhost:5173',
+    exposedHeaders: ['X-Request-ID'],
   }),
 );
 app.use(express.json());
