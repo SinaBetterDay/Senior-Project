@@ -1,5 +1,8 @@
-export const REQUEST_TIMEOUT_MS = 10_000;
+export const REQUEST_TIMEOUT_MS = 20_000;
+export const UPLOAD_TIMEOUT_MS = 60_000;
 export const TIMEOUT_MESSAGE = "The server took too long to respond. Check your connection and try again.";
+
+export type RequestOptions = RequestInit & { timeoutMs?: number };
 
 /** Keep actionable messages, but never display serialized exceptions or HTML. */
 export function safeMessage(value: unknown, fallback = "The request could not be completed. Please try again."): string {
@@ -10,23 +13,24 @@ export function safeMessage(value: unknown, fallback = "The request could not be
 }
 
 /** Deadline includes reading the response body; caller cancellation stays silent. */
-export async function request(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+export async function request(input: RequestInfo | URL, init: RequestOptions = {}): Promise<Response> {
+  const { timeoutMs = REQUEST_TIMEOUT_MS, ...fetchInit } = init;
   const controller = new AbortController();
   const abort = () => controller.abort();
-  if (init.signal?.aborted) throw new DOMException("Cancelled", "AbortError");
-  init.signal?.addEventListener("abort", abort, { once: true });
+  if (fetchInit.signal?.aborted) throw new DOMException("Cancelled", "AbortError");
+  fetchInit.signal?.addEventListener("abort", abort, { once: true });
   let timer: ReturnType<typeof setTimeout> | undefined;
   let timedOut = false;
   const cancellation = new Promise<never>((_, reject) => {
     controller.signal.addEventListener("abort", () => reject(timedOut
       ? new Error(TIMEOUT_MESSAGE)
       : new DOMException("Cancelled", "AbortError")), { once: true });
-    timer = setTimeout(() => { timedOut = true; controller.abort(); }, REQUEST_TIMEOUT_MS);
+    timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
   });
   try {
     return await Promise.race([
       (async () => {
-        const response = await fetch(input, { ...init, signal: controller.signal });
+        const response = await fetch(input, { ...fetchInit, signal: controller.signal });
         // Consume a clone within the deadline, leaving the response API intact.
         await response.clone().arrayBuffer();
         return response;
@@ -39,6 +43,6 @@ export async function request(input: RequestInfo | URL, init: RequestInit = {}):
     throw new Error("We couldn’t connect to the server. Check your connection and try again.");
   } finally {
     clearTimeout(timer);
-    init.signal?.removeEventListener("abort", abort);
+    fetchInit.signal?.removeEventListener("abort", abort);
   }
 }

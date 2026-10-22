@@ -1,5 +1,5 @@
 import RequestError from "../components/RequestError";
-import { safeMessage, TIMEOUT_MESSAGE, REQUEST_TIMEOUT_MS } from "../lib/request";
+import { safeMessage, TIMEOUT_MESSAGE, UPLOAD_TIMEOUT_MS } from "../lib/request";
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { FileUp, Upload } from "lucide-react";
 import { AdminGuard, AdminNav } from "../adminComponents";
@@ -112,7 +112,7 @@ export default function AdminUploadPage() {
           resolve(payload as UploadSummary);
         };
         request.onerror = () => reject(new Error("Network error while uploading the workbook."));
-        request.timeout = REQUEST_TIMEOUT_MS;
+        request.timeout = UPLOAD_TIMEOUT_MS;
         request.ontimeout = () => reject(new Error(TIMEOUT_MESSAGE + " The upload may still finish; check the official’s filings before uploading again."));
         request.send(body);
       });

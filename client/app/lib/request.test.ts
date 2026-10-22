@@ -9,12 +9,12 @@ describe("request", () => {
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: "Duplicate filing" });
   });
-  it("times out at ten seconds even if fetch never settles", async () => {
+  it("uses the caller's deadline even if fetch never settles", async () => {
     vi.useFakeTimers();
     vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise(() => {}));
-    const result = request("/records");
+    const result = request("/records", { timeoutMs: 1_000 });
     const assertion = expect(result).rejects.toThrow(TIMEOUT_MESSAGE);
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(1_000);
     await assertion;
   });
   it("preserves cancellation instead of reporting a timeout", async () => {

@@ -1,6 +1,7 @@
 import '../lib/env.js';
 import { parsePdfAgenda } from '../ingestion/pdfParser.js';
 import { prisma } from '../lib/prisma.js';
+import { detectConflictsForAgendaItems } from '../detection/detectConflicts.js';
 
 const DEFAULT_LOOKBACK_DAYS = 14;
 const PDF_DOWNLOAD_TIMEOUT_MS = 30_000;
@@ -75,6 +76,7 @@ async function findOrCreateDataSource(prismaClient, cityName) {
 async function upsertAgendaRows(prismaClient, rows, cityName) {
   let inserted = 0;
   let skipped = 0;
+  const insertedIds = [];
 
   for (const row of rows) {
     const key = {
@@ -86,15 +88,18 @@ async function upsertAgendaRows(prismaClient, rows, cityName) {
     const existing = await prismaClient.agendaItem.findUnique({ where, select: { id: true } });
     const data = { ...row, cityName };
 
-    await prismaClient.agendaItem.upsert({ where, create: data, update: data });
+    const saved = await prismaClient.agendaItem.upsert({ where, create: data, update: data });
     if (existing) skipped += 1;
-    else inserted += 1;
+    else {
+      inserted += 1;
+      insertedIds.push(saved.id);
+    }
   }
 
-  return { inserted, skipped };
+  return { inserted, skipped, insertedIds };
 }
 
-async function processCityItems({ cityName, items, prismaClient, parsePdf, fetchImpl, log }) {
+async function processCityItems({ cityName, items, prismaClient, parsePdf, fetchImpl, detect, log }) {
   const source = await findOrCreateDataSource(prismaClient, cityName);
   const syncLog = await prismaClient.syncLog.create({
     data: {
@@ -107,6 +112,7 @@ async function processCityItems({ cityName, items, prismaClient, parsePdf, fetch
   });
   let inserted = 0;
   let skipped = 0;
+  let conflictsDetected = 0;
   const errors = [];
 
   for (const item of items) {
@@ -115,12 +121,19 @@ async function processCityItems({ cityName, items, prismaClient, parsePdf, fetch
       if (!item.meetingDate) throw new Error('Actor item has an invalid or missing meeting_date');
 
       const buffer = await downloadPdf(item.pdfUrl, { fetchImpl });
-      const rows = await parsePdf(buffer, source.id, item.meetingDate);
+      const rows = (await parsePdf(buffer, source.id, item.meetingDate)).map((row) => ({
+        ...row,
+        sourceUrl: item.pdfUrl,
+      }));
       if (rows.length === 0) throw new Error('PDF contained no parseable agenda text');
 
       const result = await upsertAgendaRows(prismaClient, rows, cityName);
       inserted += result.inserted;
       skipped += result.skipped;
+      if (result.insertedIds.length > 0) {
+        const detection = await detect(result.insertedIds, { prisma: prismaClient });
+        conflictsDetected += detection.inserted;
+      }
     } catch (error) {
       skipped += 1;
       const detail = { pdfUrl: item.pdfUrl || null, message: errorMessage(error) };
@@ -140,6 +153,7 @@ async function processCityItems({ cityName, items, prismaClient, parsePdf, fetch
         itemsFound: items.length,
         itemsInserted: inserted,
         itemsSkipped: skipped,
+        conflictsDetected,
         errors: errors.length > 0 ? errors : null,
       },
     }),
@@ -149,7 +163,7 @@ async function processCityItems({ cityName, items, prismaClient, parsePdf, fetch
     }),
   ]);
 
-  return { cityName, pdfsFetched: items.length, inserted, skipped, errors };
+  return { cityName, pdfsFetched: items.length, inserted, skipped, conflictsDetected, errors };
 }
 
 /** Run the full Apify → PDF → agenda_items ingestion pipeline. */
@@ -159,12 +173,12 @@ export async function runApifyAgendaScrape({
   prismaClient = prisma,
   scrapeAgendaPDFs,
   parsePdf = parsePdfAgenda,
+  detect = detectConflictsForAgendaItems,
   fetchImpl = fetch,
   log = console.log,
 } = {}) {
   if (!scrapeAgendaPDFs) {
     assertEnv('APIFY_TOKEN');
-    assertEnv('APIFY_ACTOR_ID');
     ({ scrapeAgendaPDFs } = await import('../../services/apifyscraper.js'));
   }
 
@@ -184,7 +198,7 @@ export async function runApifyAgendaScrape({
 
   const cities = [];
   for (const [cityName, items] of byCity) {
-    cities.push(await processCityItems({ cityName, items, prismaClient, parsePdf, fetchImpl, log }));
+    cities.push(await processCityItems({ cityName, items, prismaClient, parsePdf, fetchImpl, detect, log }));
   }
 
   const totals = cities.reduce((result, summary) => ({
@@ -192,12 +206,14 @@ export async function runApifyAgendaScrape({
     pdfsFetched: result.pdfsFetched + summary.pdfsFetched,
     inserted: result.inserted + summary.inserted,
     skipped: result.skipped + summary.skipped,
+    conflictsDetected: result.conflictsDetected + summary.conflictsDetected,
     errors: result.errors + summary.errors.length,
   }), {
     citiesProcessed: 0,
     pdfsFetched: 0,
     inserted: 0,
     skipped: missingCity.length,
+    conflictsDetected: 0,
     errors: missingCity.length,
   });
 

@@ -16,12 +16,17 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 router.get("/", async (_req, res, next) => {
   try {
+    const requestedLimit = Number.parseInt(String(_req.query.limit ?? ""), 10);
+    const take = Number.isFinite(requestedLimit)
+      ? Math.max(1, Math.min(requestedLimit, 100))
+      : undefined;
     const conflicts = await prisma.conflict.findMany({
       include: conflictInclude,
       orderBy: [
         { detectedAt: "desc" },
         { id: "asc" },
       ],
+      ...(take ? { take } : {}),
     });
 
     res.status(200).json({

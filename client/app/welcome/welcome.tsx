@@ -9,8 +9,8 @@ const label = (value: string) => value.replaceAll("_", " ").toLowerCase().replac
 const severityClass = (severity: string) => severity.toUpperCase() === "HIGH" ? "bg-red-50 text-red-800 ring-red-200" : severity.toUpperCase() === "MEDIUM" ? "bg-amber-50 text-amber-800 ring-amber-200" : "bg-blue-50 text-blue-800 ring-blue-200";
 
 export function Welcome() {
-  const { data, loading, error, retry } = usePublicData<Conflict[]>(`${apiBaseUrl}/api/conflicts`);
-  const conflicts = (data ?? []).slice(0, 6);
+  const { data, loading, error, retry } = usePublicData<Conflict[]>(`${apiBaseUrl}/api/conflicts?limit=6`);
+  const conflicts = data ?? [];
 
   return <main>
     <section className="border-b border-slate-200 bg-white"><div className="page-shell grid items-center gap-12 py-14 lg:grid-cols-[1.15fr_0.85fr] lg:py-20">

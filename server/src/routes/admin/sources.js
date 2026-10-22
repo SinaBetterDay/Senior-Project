@@ -5,6 +5,9 @@ import { requireAdmin } from '../../lib/auth.js';
 import { ApifyClient } from 'apify-client';
 import { prisma } from '../../lib/prisma.js';
 import { getAgendaItems, getMeetings } from '../../ingestion/legistarApi.js';
+import { parsePdfAgenda } from '../../ingestion/pdfParser.js';
+import { downloadPdf } from '../../jobs/runApifyAgendaScrape.js';
+import { detectConflictsForAgendaItems } from '../../detection/detectConflicts.js';
 
 const router = express.Router();
 
@@ -127,13 +130,32 @@ async function runLegistarSource(source) {
     }
   }
 
-  const result = rows.length
-    ? await prisma.agendaItem.createMany({ data: rows, skipDuplicates: true })
+  const legistarItemIds = rows.map((row) => row.legistarItemId);
+  const existing = rows.length
+    ? await prisma.agendaItem.findMany({
+        where: { legistarItemId: { in: legistarItemIds } },
+        select: { legistarItemId: true },
+      })
+    : [];
+  const existingIds = new Set(existing.map((row) => row.legistarItemId));
+  const newRows = rows.filter((row) => !existingIds.has(row.legistarItemId));
+  const result = newRows.length
+    ? await prisma.agendaItem.createMany({ data: newRows, skipDuplicates: true })
     : { count: 0 };
+  const insertedRows = result.count > 0
+    ? await prisma.agendaItem.findMany({
+        where: { legistarItemId: { in: newRows.map((row) => row.legistarItemId) } },
+        select: { id: true },
+      })
+    : [];
+  const detection = insertedRows.length > 0
+    ? await detectConflictsForAgendaItems(insertedRows.map((row) => row.id), { prisma })
+    : { inserted: 0 };
   return {
     itemsFound: rows.length,
     itemsInserted: result.count,
     itemsSkipped: rows.length - result.count,
+    conflictsDetected: detection.inserted,
   };
 }
 
@@ -152,36 +174,48 @@ async function runApifySource(source) {
     items.push(...(page.items ?? []));
     if ((page.items?.length ?? 0) < 1000) break;
   }
-  const existing = await prisma.agendaItem.findMany({
-    where: { cityId: source.id },
-    select: { itemText: true },
-  });
-  const existingItemTexts = new Set(existing.map((item) => item.itemText).filter(Boolean));
-  const seenItemTexts = new Set();
-  const rows = items.flatMap((item) => {
+  let itemsInserted = 0;
+  let itemsSkipped = 0;
+  let conflictsDetected = 0;
+  for (const item of items) {
     const url = item.pdf_url ?? item.pdfUrl ?? item.agenda_url ?? item.url ?? null;
-    const title = item.document_title ?? item.title ?? item.agenda_title ?? item.agendaTitle ?? item.name ?? (url ? 'Agenda PDF' : null);
-    const itemText = url ?? item.text ?? item.description ?? JSON.stringify(item);
-    if (existingItemTexts.has(itemText) || seenItemTexts.has(itemText)) return [];
-    seenItemTexts.add(itemText);
-
     const date = item.meeting_date ?? item.meetingDate ?? null;
-    return [{
-      sourceType: 'apify',
-      cityId: source.id,
+    const meetingDate = date && !Number.isNaN(Date.parse(date)) ? new Date(date) : null;
+    if (!url || !meetingDate) {
+      itemsSkipped += 1;
+      continue;
+    }
+    const parsedRows = (await parsePdfAgenda(await downloadPdf(url), source.id, meetingDate)).map((row) => ({
+      ...row,
+      sourceUrl: url,
       cityName: source.cityName,
-      title: String(title ?? 'Untitled agenda item'),
-      description: item.description ? String(item.description) : null,
-      itemText: String(itemText),
-      meetingDate: date && !Number.isNaN(Date.parse(date)) ? new Date(date) : null,
-    }];
-  });
-
-  if (rows.length) await prisma.agendaItem.createMany({ data: rows });
+      title: item.document_title ?? item.title ?? item.agenda_title ?? item.agendaTitle ?? item.name ?? 'Agenda item',
+    }));
+    const insertedIds = [];
+    for (const row of parsedRows) {
+      const where = { cityId_meetingDate_itemNumber: {
+        cityId: row.cityId,
+        meetingDate: row.meetingDate,
+        itemNumber: row.itemNumber,
+      } };
+      const existing = await prisma.agendaItem.findUnique({ where, select: { id: true } });
+      const saved = await prisma.agendaItem.upsert({ where, create: row, update: row });
+      if (existing) itemsSkipped += 1;
+      else {
+        itemsInserted += 1;
+        insertedIds.push(saved.id);
+      }
+    }
+    if (insertedIds.length > 0) {
+      const detection = await detectConflictsForAgendaItems(insertedIds, { prisma });
+      conflictsDetected += detection.inserted;
+    }
+  }
   return {
     itemsFound: items.length,
-    itemsInserted: rows.length,
-    itemsSkipped: items.length - rows.length,
+    itemsInserted,
+    itemsSkipped,
+    conflictsDetected,
   };
 }
 
@@ -201,6 +235,7 @@ async function executeSourceSync(source, syncLogId) {
           itemsFound: result.itemsFound,
           itemsInserted: result.itemsInserted,
           itemsSkipped: result.itemsSkipped,
+          conflictsDetected: result.conflictsDetected ?? 0,
         },
       }),
       prisma.dataSource.update({
@@ -289,11 +324,11 @@ router.get('/:id/documents', requireAdmin, async (req, res) => {
   try {
     const rows = await prisma.agendaItem.findMany({
       where: { cityId: req.params.id, sourceType: 'apify' },
-      select: { id: true, title: true, itemText: true, meetingDate: true },
+      select: { id: true, title: true, sourceUrl: true, meetingDate: true },
       orderBy: { meetingDate: 'desc' }, take: 200,
     });
-    return res.json(rows.filter((row) => /^https?:\/\//i.test(row.itemText ?? '')).map((row) => ({
-      id: row.id, title: row.title, pdfUrl: row.itemText, meetingDate: row.meetingDate,
+    return res.json(rows.filter((row) => /^https?:\/\//i.test(row.sourceUrl ?? '')).map((row) => ({
+      id: row.id, title: row.title, pdfUrl: row.sourceUrl, meetingDate: row.meetingDate,
     })));
   } catch {
     return res.status(500).json({ error: 'Failed to load agenda documents.' });

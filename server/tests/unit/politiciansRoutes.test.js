@@ -67,6 +67,15 @@ describe("GET /api/politicians", () => {
       ],
     });
   });
+
+  it("caps explicitly requested list sizes", async () => {
+    prisma.politician.findMany.mockResolvedValue([]);
+
+    const res = await request(app).get("/api/politicians?limit=5000");
+
+    expect(res.status).toBe(200);
+    expect(prisma.politician.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 500 }));
+  });
 });
 
 describe("GET /api/politicians/id/:id", () => {

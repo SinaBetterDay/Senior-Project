@@ -88,6 +88,7 @@ describe('runApifyAgendaScrape', () => {
     itemText: 'Approve a public works contract.',
     sourceType: 'pdf',
   }]);
+  const detect = vi.fn(async () => ({ inserted: 0, skipped: 0, totalCandidates: 0 }));
 
   it('downloads, parses, persists, and logs an Apify PDF result', async () => {
     const state = createPrismaDouble();
@@ -101,6 +102,7 @@ describe('runApifyAgendaScrape', () => {
       prismaClient: state.prisma,
       scrapeAgendaPDFs,
       parsePdf,
+      detect,
       fetchImpl: vi.fn().mockImplementation(async () => pdfResponse()),
       log: vi.fn(),
     });
@@ -113,6 +115,27 @@ describe('runApifyAgendaScrape', () => {
     expect(state.syncLogs[0]).toMatchObject({ status: 'success', itemsFound: 1, itemsInserted: 1, itemsSkipped: 0, errors: null });
   });
 
+  it('detects conflicts for newly inserted agenda items and records the count', async () => {
+    const state = createPrismaDouble();
+    const detect = vi.fn().mockResolvedValue({ inserted: 2, skipped: 0, totalCandidates: 2 });
+
+    const result = await runApifyAgendaScrape({
+      prismaClient: state.prisma,
+      scrapeAgendaPDFs: vi.fn().mockResolvedValue([{
+        pdf_url: 'https://city.test/agenda.pdf', meeting_date: '2026-10-01', city_name: 'Test City',
+      }]),
+      parsePdf,
+      detect,
+      detect,
+      fetchImpl: vi.fn().mockResolvedValue(pdfResponse()),
+      log: vi.fn(),
+    });
+
+    expect(detect).toHaveBeenCalledWith(['agenda-1'], { prisma: state.prisma });
+    expect(result.conflictsDetected).toBe(2);
+    expect(state.syncLogs[0].conflictsDetected).toBe(2);
+  });
+
   it('does not duplicate agenda items when the same actor result is rerun', async () => {
     const state = createPrismaDouble();
     const options = {
@@ -121,6 +144,7 @@ describe('runApifyAgendaScrape', () => {
         pdf_url: 'https://city.test/agenda.pdf', meeting_date: '2026-10-01', city_name: 'Test City',
       }]),
       parsePdf,
+      detect,
       fetchImpl: vi.fn().mockImplementation(async () => pdfResponse()),
       log: vi.fn(),
     };
@@ -145,6 +169,7 @@ describe('runApifyAgendaScrape', () => {
         { pdf_url: 'https://city.test/agenda.pdf', meeting_date: '2026-10-01', city_name: 'Test City' },
       ]),
       parsePdf,
+      detect,
       fetchImpl,
       log: vi.fn(),
     });

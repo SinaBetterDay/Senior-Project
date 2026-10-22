@@ -79,4 +79,15 @@ describe("GET /api/agenda/:id", () => {
     error: "Agenda item not found",
   });
 });
+
+describe("GET /api/agenda", () => {
+  it("bounds an explicitly limited public list request", async () => {
+    prisma.agendaItem.findMany.mockResolvedValue([]);
+
+    const res = await request(app).get("/api/agenda?limit=25");
+
+    expect(res.status).toBe(200);
+    expect(prisma.agendaItem.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 25 }));
+  });
+});
 });

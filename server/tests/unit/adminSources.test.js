@@ -9,7 +9,7 @@ vi.mock('../../src/lib/auth.js', () => ({
 vi.mock('../../src/lib/prisma.js', () => ({
   prisma: {
     dataSource: { create: vi.fn(), update: vi.fn(), delete: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() },
-    agendaItem: { deleteMany: vi.fn(), findMany: vi.fn(), createMany: vi.fn() },
+    agendaItem: { deleteMany: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn(), createMany: vi.fn() },
     syncLog: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn() },
     $transaction: vi.fn((operations) => Promise.all(operations)),
   },
@@ -20,6 +20,17 @@ vi.mock('../../src/ingestion/legistarApi.js', () => ({
   getMeetings: vi.fn(),
   getAgendaItems: vi.fn(),
   getVotes: vi.fn(),
+}));
+vi.mock('../../src/ingestion/pdfParser.js', () => ({
+  parsePdfAgenda: vi.fn(async (_buffer, cityId, meetingDate) => [{
+    cityId, meetingDate, itemNumber: '1', itemText: 'Approve a public works contract.', sourceType: 'pdf',
+  }]),
+}));
+vi.mock('../../src/jobs/runApifyAgendaScrape.js', () => ({
+  downloadPdf: vi.fn(async () => Buffer.from('pdf')),
+}));
+vi.mock('../../src/detection/detectConflicts.js', () => ({
+  detectConflictsForAgendaItems: vi.fn(async () => ({ inserted: 1, skipped: 0, totalCandidates: 1 })),
 }));
 
 import { prisma } from '../../src/lib/prisma.js';
@@ -62,6 +73,9 @@ beforeEach(() => {
     EventItemAgendaNumber: '5.1',
   }]);
   prisma.agendaItem.createMany.mockResolvedValue({ count: 1 });
+  prisma.agendaItem.findMany.mockResolvedValue([]);
+  prisma.agendaItem.findUnique.mockResolvedValue(null);
+  prisma.agendaItem.upsert.mockImplementation(async ({ create }) => ({ id: 'agenda-1', ...create }));
   prisma.syncLog.create.mockResolvedValue({ id: 'sync-1' });
   prisma.syncLog.update.mockResolvedValue({ id: 'sync-1' });
   prisma.syncLog.findFirst.mockResolvedValue({
@@ -216,8 +230,8 @@ describe('on-demand source sync', () => {
 
   it('returns document links without exposing non-URL content', async () => {
     prisma.agendaItem.findMany.mockResolvedValue([
-      { id: 'pdf', title: 'Agenda', itemText: 'https://city.gov/a.pdf', meetingDate: null },
-      { id: 'text', itemText: 'not a URL' },
+      { id: 'pdf', title: 'Agenda', sourceUrl: 'https://city.gov/a.pdf', meetingDate: null },
+      { id: 'text', sourceUrl: null },
     ]);
     const response = await request(app).get('/api/admin/sources/source-1/documents');
     expect(response.body).toEqual([{ id: 'pdf', title: 'Agenda', pdfUrl: 'https://city.gov/a.pdf', meetingDate: null }]);
@@ -233,6 +247,10 @@ describe('on-demand source sync', () => {
   });
 
   it('starts a Legistar ingestion and returns a running sync-log ID', async () => {
+    prisma.agendaItem.findMany
+      .mockReset()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 'agenda-1' }]);
     const response = await request(app).post('/api/admin/sources/source-1/sync');
 
     expect(response.status).toBe(202);
@@ -309,14 +327,15 @@ describe('on-demand source sync', () => {
     await vi.waitFor(() => expect(datasetListItems).toHaveBeenCalledWith({ limit: 1000, offset: 0 }));
     expect(actor).toHaveBeenCalledWith('fair/agenda-scraper');
     expect(actorCall).toHaveBeenCalledWith({ cityName: 'Elk Grove' }, { timeout: 600 });
-    await vi.waitFor(() => expect(prisma.agendaItem.createMany).toHaveBeenCalledWith({
-      data: [expect.objectContaining({
-        sourceType: 'apify',
+    await vi.waitFor(() => expect(prisma.agendaItem.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        sourceType: 'pdf',
         cityId: 'source-1',
         cityName: 'Elk Grove',
         title: 'Council agenda',
-        itemText: 'https://city.gov/agenda.pdf',
-      })],
-    }));
+        itemText: 'Approve a public works contract.',
+        sourceUrl: 'https://city.gov/agenda.pdf',
+      }),
+    })));
   });
 });
