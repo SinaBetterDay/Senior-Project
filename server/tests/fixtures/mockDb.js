@@ -5,8 +5,9 @@ export function createMockPrisma({
   scheduleB = [],
   scheduleCde = [],
   scheduleA2 = [],
+  initialConflicts = [],
 } = {}) {
-  const insertedConflicts = [];
+  const insertedConflicts = [...initialConflicts];
 
   return {
     agendaItem: {
