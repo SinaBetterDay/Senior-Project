@@ -171,6 +171,52 @@ describe("POST /api/admin/upload/form700", () => {
     expect(prisma.form700Filing.delete).not.toHaveBeenCalled();
   });
 
+    it("ingests a workbook with missing optional schedules", async () => {
+    const XLSX = await import("xlsx");
+    const workbook = XLSX.read(validBuffer, { type: "buffer" });
+
+    const optionalSchedule = /schedule\s+(?:b|c|d|e|a-2)\b/i;
+
+    workbook.SheetNames = workbook.SheetNames.filter((sheetName) => {
+      if (optionalSchedule.test(sheetName)) {
+        delete workbook.Sheets[sheetName];
+        return false;
+      }
+      return true;
+    });
+
+    const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+    const res = await postFile(buffer, { filename: "form700-missing-optional.xlsx" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.filing_id).toBe(FILING_ID);
+    expect(res.body.politician_id).toBe(POLITICIAN_ID);
+    expect(res.body.schedules_parsed).toMatchObject({
+      A: 39,
+      B: 0,
+      CDE: 0,
+      A2: 0,
+    });
+    expect(res.body.archived_path).toBe(ARCHIVED_PATH);
+  });
+
+    it("logs when filing cleanup fails after an archive error", async () => {
+    prisma.form700Filing.update.mockRejectedValueOnce(new Error("database unavailable"));
+    prisma.form700Filing.delete.mockRejectedValueOnce(new Error("filing delete failed"));
+
+    const res = await postFile(validBuffer);
+
+    expect(res.status).toBe(500);
+    expect(console.error).toHaveBeenCalledWith(
+      "[upload] failed to delete filing after archive error:",
+      expect.objectContaining({
+        filingId: FILING_ID,
+        politicianId: POLITICIAN_ID,
+        error: "filing delete failed",
+      }),
+    );
+  });
+
   it("uses an explicit politician_id form field instead of entity resolution", async () => {
     const override = "99999999-8888-4777-8666-555555555555";
     const res = await postFile(validBuffer, { fields: { politician_id: override } });
