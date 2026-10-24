@@ -335,8 +335,10 @@ describe("POST /api/admin/upload/form700", () => {
     const res = await postFile(validBuffer);
 
     expect(res.status).toBe(500);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(archiveWorkbook).not.toHaveBeenCalled();
     expect(prisma.form700Filing.update).not.toHaveBeenCalled();
+    expect(prisma.form700Filing.delete).not.toHaveBeenCalled();
   });
 
   it("returns 400 when neither the cover page nor the form supplies a filer", async () => {
