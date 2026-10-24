@@ -13,6 +13,7 @@ type Source = {
   sourceType: "legistar" | "apify" | "pdf" | "Legistar" | "Apify" | "PDF";
   legistarBaseUrl?: string | null;
   apifyActorId?: string | null;
+  startUrl?: string | null;
   lastSyncTime: string | null;
   totalAgendaItems: number;
   lastError: string | null;
@@ -51,6 +52,7 @@ export default function AdminSourcesPage() {
   const [sourceType, setSourceType] = useState<"Legistar" | "Apify">("Legistar");
   const [legistarBaseUrl, setLegistarBaseUrl] = useState("");
   const [apifyActorId, setApifyActorId] = useState("");
+  const [startUrl, setStartUrl] = useState("");
 
   async function loadSources() {
     setLoading(true);
@@ -134,6 +136,7 @@ export default function AdminSourcesPage() {
     setSourceType("Legistar");
     setLegistarBaseUrl("");
     setApifyActorId("");
+    setStartUrl("");
     setAddError(null);
   }
 
@@ -143,6 +146,7 @@ export default function AdminSourcesPage() {
     setSourceType(source.sourceType.toLowerCase() === "apify" ? "Apify" : "Legistar");
     setLegistarBaseUrl(source.legistarBaseUrl ?? "");
     setApifyActorId(source.apifyActorId ?? "");
+    setStartUrl(source.startUrl ?? "");
     setAddError(null);
     setShowAddForm(true);
   }
@@ -161,7 +165,7 @@ export default function AdminSourcesPage() {
         body: JSON.stringify({
           cityName,
           sourceType,
-          ...(sourceType === "Legistar" ? { legistarBaseUrl } : { apifyActorId }),
+          ...(sourceType === "Legistar" ? { legistarBaseUrl } : { apifyActorId, startUrl }),
         }),
       });
 
@@ -291,17 +295,32 @@ export default function AdminSourcesPage() {
                     />
                   </div>
                 ) : (
-                  <div className="md:col-span-2">
-                    <label htmlFor="source-apify-actor" className="mb-1 block text-sm font-medium text-gray-800">Apify actor ID</label>
-                    <input
-                      id="source-apify-actor"
-                      name="apifyActorId"
-                      value={apifyActorId}
-                      onChange={(event) => setApifyActorId(event.target.value)}
-                      placeholder="username/actor-name"
-                      required
-                      className="field"
-                    />
+                  <div className="grid gap-4 md:col-span-2 md:grid-cols-2">
+                    <div>
+                      <label htmlFor="source-apify-actor" className="mb-1 block text-sm font-medium text-gray-800">Apify actor ID</label>
+                      <input
+                        id="source-apify-actor"
+                        name="apifyActorId"
+                        value={apifyActorId}
+                        onChange={(event) => setApifyActorId(event.target.value)}
+                        placeholder="username/actor-name"
+                        required
+                        className="field"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="source-start-url" className="mb-1 block text-sm font-medium text-gray-800">Agenda archive URL</label>
+                      <input
+                        id="source-start-url"
+                        name="startUrl"
+                        type="url"
+                        value={startUrl}
+                        onChange={(event) => setStartUrl(event.target.value)}
+                        placeholder="https://city.gov/council-agendas"
+                        required
+                        className="field"
+                      />
+                    </div>
                   </div>
                 )}
               </div>

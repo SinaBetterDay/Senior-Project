@@ -5,6 +5,7 @@ import { ApifyClient } from 'apify-client';
 import { prisma } from '../../lib/prisma.js';
 import { getAgendaItems, getMeetings } from '../../ingestion/legistarApi.js';
 import { parsePdfAgenda } from '../../ingestion/pdfParser.js';
+import { apifySourceDiagnostic, buildApifyActorInput } from '../../ingestion/apifyActorInput.js';
 import { downloadPdf } from '../../jobs/runApifyAgendaScrape.js';
 import { detectConflictsForAgendaItems } from '../../detection/detectConflicts.js';
 
@@ -74,18 +75,23 @@ async function validateSourceInput(body) {
     };
   }
 
+  const startUrl = validateStartUrl(body.startUrl, { required: true });
   return {
     cityName,
     sourceType: 'apify',
     legistarBaseUrl: null,
     apifyActorId: await validateApifyActorId(body.apifyActorId || process.env.APIFY_ACTOR_ID),
-    startUrl: validateStartUrl(body.startUrl),
+    startUrl,
   };
 }
 
-function validateStartUrl(value) {
-  if (value == null || value === '') return null;
-  const url = new URL(value);
+function validateStartUrl(value, { required = false } = {}) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized) {
+    if (required) throw new Error('Enter the public HTTPS agenda archive URL required by the Apify actor.');
+    return null;
+  }
+  const url = new URL(normalized);
   if (url.protocol !== 'https:' || url.username || url.password || url.hostname === 'localhost') {
     throw new Error('Use a public HTTPS council agenda URL.');
   }
@@ -162,10 +168,9 @@ async function runApifySource(source) {
   if (!process.env.APIFY_TOKEN) throw new Error('Apify is not configured on the server (APIFY_TOKEN is missing).');
 
   const client = new ApifyClient({ token: process.env.APIFY_TOKEN });
-  const run = await client.actor(source.apifyActorId).call({
-    cityName: source.cityName,
-    ...(source.startUrl ? { startUrl: source.startUrl } : {}),
-  }, { timeout: 600 });
+  const input = buildApifyActorInput(source);
+  console.info('[admin/sources] invoking Apify actor', apifySourceDiagnostic(source));
+  const run = await client.actor(source.apifyActorId).call(input, { timeout: 600 });
   if (run.status && run.status !== 'SUCCEEDED') throw new Error(`Actor ${run.status}: ${run.statusMessage || 'Check the Apify run log.'}`);
   const items = [];
   for (let offset = 0; ; offset += 1000) {
@@ -351,9 +356,14 @@ router.post('/', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
+    const existing = await prisma.dataSource.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Source not found.' });
+    const body = req.body.sourceType?.toLowerCase() === 'apify' && req.body.startUrl == null
+      ? { ...req.body, startUrl: existing.startUrl }
+      : req.body;
     const source = await prisma.dataSource.update({
       where: { id: req.params.id },
-      data: await validateSourceInput(req.body),
+      data: await validateSourceInput(body),
     });
     return res.json(source);
   } catch (error) {

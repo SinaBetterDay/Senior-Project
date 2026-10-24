@@ -47,6 +47,7 @@ const validApifySource = {
   cityName: 'Elk Grove',
   sourceType: 'Apify',
   apifyActorId: '  fair/agenda-scraper  ',
+  startUrl: 'https://www.elkgrovecity.org/city-government/city-council/meeting-agendas',
 };
 
 beforeEach(() => {
@@ -157,6 +158,7 @@ describe('Apify actor validation on save', () => {
         cityName: 'Elk Grove',
         sourceType: 'apify',
         apifyActorId: 'fair/agenda-scraper',
+        startUrl: 'https://www.elkgrovecity.org/city-government/city-council/meeting-agendas',
       }),
     });
   });
@@ -173,6 +175,17 @@ describe('Apify actor validation on save', () => {
     expect(response.status).toBe(400);
     expect(response.body.error).toContain('configured Apify account');
     expect(response.body.error).toContain('Actor not found or not accessible');
+    expect(prisma.dataSource.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a missing start URL before checking or invoking Apify', async () => {
+    const response = await request(app).post('/api/admin/sources').send({
+      cityName: 'Elk Grove', sourceType: 'Apify', apifyActorId: 'fair/agenda-scraper',
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain('agenda archive URL');
+    expect(ApifyClient).not.toHaveBeenCalled();
     expect(prisma.dataSource.create).not.toHaveBeenCalled();
   });
 });
@@ -192,6 +205,23 @@ describe('source edit and delete', () => {
     });
   });
 
+  it('preserves an existing Apify start URL when an older client omits it', async () => {
+    vi.stubEnv('APIFY_TOKEN', 'account-token');
+    prisma.dataSource.findUnique.mockResolvedValue({
+      id: 'source-1', sourceType: 'apify', startUrl: 'https://city.gov/agendas',
+    });
+    ApifyClient.mockImplementation(function () { return { actor: () => ({ get: async () => ({ id: 'actor' }) }) }; });
+
+    const response = await request(app).put('/api/admin/sources/source-1').send({
+      cityName: 'Example', sourceType: 'Apify', apifyActorId: 'fair/agenda-scraper',
+    });
+
+    expect(response.status).toBe(200);
+    expect(prisma.dataSource.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ startUrl: 'https://city.gov/agendas' }),
+    }));
+  });
+
   it('deletes only the source configuration and leaves ingested agenda items untouched', async () => {
     const response = await request(app).delete('/api/admin/sources/source-1');
 
@@ -202,7 +232,7 @@ describe('source edit and delete', () => {
 });
 
 describe('on-demand source sync', () => {
-  it('creates a city-only discovery source and starts a run', async () => {
+  it('creates a URL-backed discovery source and starts a run', async () => {
     vi.stubEnv('APIFY_TOKEN', 'token');
     vi.stubEnv('APIFY_ACTOR_ID', 'fair/finder');
     prisma.dataSource.findFirst.mockResolvedValue(null);
@@ -212,11 +242,13 @@ describe('on-demand source sync', () => {
       dataset: () => ({ listItems: async () => ({ items: [] }) }),
     }; });
     prisma.agendaItem.findMany.mockResolvedValue([]);
-    const response = await request(app).post('/api/admin/sources/discover').send({ cityName: ' Example ' });
+    const response = await request(app).post('/api/admin/sources/discover').send({ cityName: ' Example ', startUrl: 'https://example.gov/agendas' });
     expect(response.status).toBe(202);
     expect(response.body.sourceId).toBe('source-1');
-    await vi.waitFor(() => expect(call).toHaveBeenCalledWith({ cityName: 'Example' }, { timeout: 600 }));
-    expect(prisma.dataSource.create).toHaveBeenCalledWith({ data: expect.objectContaining({ cityName: 'Example', apifyActorId: 'fair/finder', startUrl: null }) });
+    await vi.waitFor(() => expect(call).toHaveBeenCalledWith({
+      cityName: 'Example', startUrl: 'https://example.gov/agendas', maxDepth: 2, maxPages: 200, sameDomainOnly: true,
+    }, { timeout: 600 }));
+    expect(prisma.dataSource.create).toHaveBeenCalledWith({ data: expect.objectContaining({ cityName: 'Example', apifyActorId: 'fair/finder', startUrl: 'https://example.gov/agendas' }) });
   });
 
   it('rejects invalid city discovery input before creating sources', async () => {
@@ -235,7 +267,9 @@ describe('on-demand source sync', () => {
 
   it('records failed Actor runs rather than importing partial datasets', async () => {
     vi.stubEnv('APIFY_TOKEN', 'token');
-    prisma.dataSource.findUnique.mockResolvedValue({ id: 'source-1', cityName: 'Example', sourceType: 'apify', apifyActorId: 'finder' });
+    prisma.dataSource.findUnique.mockResolvedValue({
+      id: 'source-1', cityName: 'Example', sourceType: 'apify', apifyActorId: 'finder', startUrl: 'https://example.gov/agendas',
+    });
     ApifyClient.mockImplementation(function () { return { actor: () => ({ call: async () => ({ status: 'FAILED', statusMessage: 'No unique official website' }) }) }; });
     await request(app).post('/api/admin/sources/source-1/sync');
     await vi.waitFor(() => expect(prisma.syncLog.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'failed', errors: { message: 'Actor FAILED: No unique official website' } }) })));
@@ -305,6 +339,7 @@ describe('on-demand source sync', () => {
       cityName: 'Elk Grove',
       sourceType: 'apify',
       apifyActorId: 'fair/agenda-scraper',
+      startUrl: 'https://city.gov/agendas',
     });
     const actorCall = vi.fn().mockResolvedValue({ defaultDatasetId: 'dataset-1' });
     const actor = vi.fn(() => ({ call: actorCall }));
@@ -322,7 +357,9 @@ describe('on-demand source sync', () => {
     expect(response.status).toBe(202);
     await vi.waitFor(() => expect(datasetListItems).toHaveBeenCalledWith({ limit: 1000, offset: 0 }));
     expect(actor).toHaveBeenCalledWith('fair/agenda-scraper');
-    expect(actorCall).toHaveBeenCalledWith({ cityName: 'Elk Grove' }, { timeout: 600 });
+    expect(actorCall).toHaveBeenCalledWith({
+      cityName: 'Elk Grove', startUrl: 'https://city.gov/agendas', maxDepth: 2, maxPages: 200, sameDomainOnly: true,
+    }, { timeout: 600 });
     await vi.waitFor(() => expect(prisma.agendaItem.upsert).toHaveBeenCalledWith(expect.objectContaining({
       create: expect.objectContaining({
         sourceType: 'pdf',

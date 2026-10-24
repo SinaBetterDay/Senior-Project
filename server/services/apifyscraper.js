@@ -1,5 +1,6 @@
 import { ApifyClient } from 'apify-client';
 import { prisma } from '../src/lib/prisma.js';
+import { apifySourceDiagnostic, buildApifyActorInput } from '../src/ingestion/apifyActorInput.js';
 
 const client = new ApifyClient({ token: process.env.APIFY_TOKEN });
 
@@ -14,14 +15,10 @@ export async function scrapeAgendaPDFs({ lookbackDays = 14 } = {}) {
   for (const source of sources) {
     const actorId = source.apifyActorId ?? process.env.APIFY_ACTOR_ID;
     if (!actorId) throw new Error(`No Apify actor configured for ${source.cityName}`);
-    const run = await client.actor(actorId).call({
-      ...(source.startUrl ? { startUrl: source.startUrl } : {}),
-      cityName: source.cityName,
-      maxDepth: 2,
-      maxPages: 200,
-      sameDomainOnly: true,
-      lookbackDays,
-    });
+    const actorSource = { ...source, apifyActorId: actorId };
+    const input = buildApifyActorInput(actorSource, { lookbackDays });
+    console.info('[cron][apify] invoking actor', apifySourceDiagnostic(actorSource));
+    const run = await client.actor(actorId).call(input);
 
     for (let offset = 0; ; offset += 1000) {
       const { items = [] } = await client.dataset(run.defaultDatasetId).listItems({ limit: 1000, offset });
