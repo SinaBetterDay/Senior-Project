@@ -204,6 +204,25 @@ describe("POST /api/admin/upload/form700", () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
+  it("returns 400 for a workbook with no recognizable Form 700 sheets", async () => {
+    const XLSX = await import("xlsx");
+    const workbook = XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet([["Instructions"], ["Not a Form 700 workbook"]]),
+      "Instructions",
+    );
+
+    const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+    const res = await postFile(buffer, { filename: "unsupported.xlsx" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/recognizable Form 700 sheets/i);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(archiveWorkbook).not.toHaveBeenCalled();
+  });
+
   it("returns 400 when the MIME type is not XLSX", async () => {
     const res = await postFile(validBuffer, { contentType: "text/plain" });
 
@@ -297,7 +316,7 @@ describe("POST /api/admin/upload/form700", () => {
     deleteWorkbook.mockRejectedValueOnce(new Error("storage delete failed"));
 
     const res = await postFile(validBuffer);
-    
+
     expect(res.status).toBe(500);
     expect(console.error).toHaveBeenCalledWith(
       "[upload] failed to delete archived workbook after archive error:",
