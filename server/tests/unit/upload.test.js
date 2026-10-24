@@ -48,7 +48,7 @@ vi.mock("../../src/jobs/scheduleCronJobs.js", () => ({ scheduleCronJobs: vi.fn()
 import { app } from "../../src/app.js";
 import { requireAdmin } from "../../src/lib/auth.js";
 import { prisma } from "../../src/lib/prisma.js";
-import { archiveWorkbook, XLSX_MIME } from "../../src/lib/storage.js";
+import { archiveWorkbook, deleteWorkbook, XLSX_MIME } from "../../src/lib/storage.js";
 import { findOrCreatePolitician } from "../../src/utils/findOrCreatePolitician.js";
 
 const ENDPOINT = "/api/admin/upload/form700";
@@ -88,6 +88,7 @@ beforeEach(() => {
     prisma.__tx[model].createMany.mockImplementation(async ({ data }) => ({ count: data.length }));
   }
   archiveWorkbook.mockResolvedValue(ARCHIVED_PATH);
+  deleteWorkbook.mockResolvedValue(undefined);
 });
 
 describe("POST /api/admin/upload/form700", () => {
@@ -277,6 +278,36 @@ describe("POST /api/admin/upload/form700", () => {
     expect(res.body.error).toMatch(/Failed to archive workbook/);
     expect(prisma.form700Filing.delete).toHaveBeenCalledWith({ where: { id: FILING_ID } });
     expect(prisma.form700Filing.update).not.toHaveBeenCalled();
+  });
+
+  it("deletes the archived workbook and filing when saving the archive path fails", async () => {
+    prisma.form700Filing.update.mockRejectedValueOnce(new Error("database unavailable"));
+
+    const res = await postFile(validBuffer);
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toMatch(/Failed to archive workbook/);
+    expect(deleteWorkbook).toHaveBeenCalledWith(ARCHIVED_PATH);
+    expect(prisma.form700Filing.delete).toHaveBeenCalledWith({ where: { id: FILING_ID } });
+    expect(prisma.form700Filing.update).toHaveBeenCalled();
+  });
+
+  it("logs enough information when archived workbook cleanup fails", async () => {
+    prisma.form700Filing.update.mockRejectedValueOnce(new Error("database unavailable"));
+    deleteWorkbook.mockRejectedValueOnce(new Error("storage delete failed"));
+
+    const res = await postFile(validBuffer);
+    
+    expect(res.status).toBe(500);
+    expect(console.error).toHaveBeenCalledWith(
+      "[upload] failed to delete archived workbook after archive error:",
+      expect.objectContaining({
+          filingId: FILING_ID,
+          politicianId: POLITICIAN_ID,
+          archivedPath: ARCHIVED_PATH,
+          error: "storage delete failed",
+        }), 
+    );
   });
 
   it("does not archive anything when a schedule insert fails inside the transaction", async () => {
