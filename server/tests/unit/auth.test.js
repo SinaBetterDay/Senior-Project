@@ -9,7 +9,7 @@ vi.mock('../../src/lib/supabase.js', () => ({
 }));
 
 import { supabase } from '../../src/lib/supabase.js';
-import { requireAdmin, extractBearerToken } from '../../src/lib/auth.js';
+import { requireAdmin, extractBearerToken, isAuthorizedAdmin } from '../../src/lib/auth.js';
 
 function mockRes() {
   const res = {};
@@ -25,6 +25,7 @@ function mockReq(headers = {}) {
 describe('requireAdmin', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.FAIR_ADMIN_EMAIL = 'admin@fppc.ca.gov';
   });
 
   it('calls next() and sets req.user for a valid token', async () => {
@@ -89,6 +90,20 @@ describe('requireAdmin', () => {
     expect(req.user).toBeUndefined();
   });
 
+  it('returns 401 for a valid user that is not the configured admin', async () => {
+    supabase.auth.getUser.mockResolvedValue({
+      data: { user: { id: 'user-456', email: 'other@fppc.ca.gov' } },
+      error: null,
+    });
+    const res = mockRes();
+    const next = vi.fn();
+
+    await requireAdmin(mockReq({ authorization: 'Bearer valid-jwt' }), res, next);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
   it('returns 401 (never throws) when getUser rejects', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     supabase.auth.getUser.mockRejectedValue(new Error('network down'));
@@ -103,6 +118,15 @@ describe('requireAdmin', () => {
     expect(res.json).toHaveBeenCalledWith({ error: 'unauthorized' });
     expect(next).not.toHaveBeenCalled();
     errorSpy.mockRestore();
+  });
+});
+
+describe('isAuthorizedAdmin', () => {
+  it('fails closed when the configured admin email is missing', () => {
+    const saved = process.env.FAIR_ADMIN_EMAIL;
+    delete process.env.FAIR_ADMIN_EMAIL;
+    expect(isAuthorizedAdmin({ email: 'admin@fppc.ca.gov' })).toBe(false);
+    process.env.FAIR_ADMIN_EMAIL = saved;
   });
 });
 

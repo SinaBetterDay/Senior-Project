@@ -16,6 +16,12 @@ import { supabase } from './supabase.js';
 
 const UNAUTHORIZED = { error: 'unauthorized' };
 
+export function isAuthorizedAdmin(user) {
+  const configuredEmail = String(process.env.FAIR_ADMIN_EMAIL ?? '').trim().toLowerCase();
+  const userEmail = String(user?.email ?? '').trim().toLowerCase();
+  return Boolean(configuredEmail && userEmail && configuredEmail === userEmail);
+}
+
 export function extractBearerToken(headerValue) {
   if (typeof headerValue !== 'string') return null;
   const match = headerValue.match(/^Bearer\s+(.+)$/i);
@@ -38,6 +44,11 @@ export async function requireAdmin(req, res, next) {
     const { data, error } = await supabase.auth.getUser(token);
     if (error || !data?.user) {
       console.warn(`[auth:${id}] rejected ${Math.round(performance.now() - startedAt)}ms`);
+      return res.status(401).json(UNAUTHORIZED);
+    }
+
+    if (!isAuthorizedAdmin(data.user)) {
+      console.warn(`[auth:${id}] valid user is not an authorized admin`);
       return res.status(401).json(UNAUTHORIZED);
     }
 
