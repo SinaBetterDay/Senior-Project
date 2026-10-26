@@ -32,6 +32,7 @@ vi.mock('../../src/detection/detectConflicts.js', () => ({
 import { prisma } from '../../src/lib/prisma.js';
 import { ApifyClient } from 'apify-client';
 import { getAgendaItems, getMeetings } from '../../src/ingestion/legistarApi.js';
+import { detectConflictsForAgendaItems } from '../../src/detection/detectConflicts.js';
 import sourcesRouter from '../../src/routes/admin/sources.js';
 
 const app = express();
@@ -302,6 +303,10 @@ describe('on-demand source sync', () => {
       })],
       skipDuplicates: true,
     }));
+    await vi.waitFor(() => expect(detectConflictsForAgendaItems).toHaveBeenCalledWith(
+      ['agenda-1'],
+      { prisma },
+    ));
   });
 
   it('returns the persisted status and result counts for a sync run', async () => {
@@ -370,5 +375,9 @@ describe('on-demand source sync', () => {
         sourceUrl: 'https://city.gov/agenda.pdf',
       }),
     })));
+    await vi.waitFor(() => expect(detectConflictsForAgendaItems).toHaveBeenCalledWith(
+      ['agenda-1'],
+      { prisma },
+    ));
   });
 });

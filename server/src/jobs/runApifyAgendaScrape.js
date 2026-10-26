@@ -1,5 +1,6 @@
 import '../lib/env.js';
 import { parsePdfAgenda } from '../ingestion/pdfParser.js';
+import { upsertAgendaItems } from '../ingestion/upsertAgendaItems.js';
 import { prisma } from '../lib/prisma.js';
 import { detectConflictsForAgendaItems } from '../detection/detectConflicts.js';
 
@@ -73,43 +74,6 @@ async function findOrCreateDataSource(prismaClient, cityName) {
   });
 }
 
-async function upsertAgendaRows(prismaClient, rows, cityName) {
-  let inserted = 0;
-  let skipped = 0;
-  const changedIds = [];
-
-  for (const row of rows) {
-    const key = {
-      cityId: row.cityId,
-      meetingDate: row.meetingDate,
-      itemNumber: row.itemNumber,
-    };
-    const where = { cityId_meetingDate_itemNumber: key };
-    const existing = await prismaClient.agendaItem.findUnique({
-      where,
-      select: { id: true, title: true, description: true, itemText: true },
-    });
-    const data = { ...row, cityName };
-
-    const saved = await prismaClient.agendaItem.upsert({ where, create: data, update: data });
-    if (existing) {
-      skipped += 1;
-      if (
-        (existing.title ?? null) !== (data.title ?? null)
-        || (existing.description ?? null) !== (data.description ?? null)
-        || (existing.itemText ?? null) !== (data.itemText ?? null)
-      ) {
-        changedIds.push(saved.id);
-      }
-    } else {
-      inserted += 1;
-      changedIds.push(saved.id);
-    }
-  }
-
-  return { inserted, skipped, changedIds };
-}
-
 async function processCityItems({ cityName, items, prismaClient, parsePdf, fetchImpl, detect, log }) {
   const source = await findOrCreateDataSource(prismaClient, cityName);
   const syncLog = await prismaClient.syncLog.create({
@@ -138,7 +102,17 @@ async function processCityItems({ cityName, items, prismaClient, parsePdf, fetch
       }));
       if (rows.length === 0) throw new Error('PDF contained no parseable agenda text');
 
-      const result = await upsertAgendaRows(prismaClient, rows, cityName);
+      const result = await upsertAgendaItems(
+        prismaClient,
+        rows.map((row) => ({ ...row, cityName })),
+        (row) => ({
+          cityId_meetingDate_itemNumber: {
+            cityId: row.cityId,
+            meetingDate: row.meetingDate,
+            itemNumber: row.itemNumber,
+          },
+        }),
+      );
       inserted += result.inserted;
       skipped += result.skipped;
       if (result.changedIds.length > 0) {

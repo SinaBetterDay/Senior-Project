@@ -5,6 +5,7 @@ import { ApifyClient } from 'apify-client';
 import { prisma } from '../../lib/prisma.js';
 import { getAgendaItems, getMeetings } from '../../ingestion/legistarApi.js';
 import { parsePdfAgenda } from '../../ingestion/pdfParser.js';
+import { upsertAgendaItems } from '../../ingestion/upsertAgendaItems.js';
 import { apifySourceDiagnostic, buildApifyActorInput } from '../../ingestion/apifyActorInput.js';
 import { downloadPdf } from '../../jobs/runApifyAgendaScrape.js';
 import { detectConflictsForAgendaItems } from '../../detection/detectConflicts.js';
@@ -195,23 +196,21 @@ async function runApifySource(source) {
       cityName: source.cityName,
       title: item.document_title ?? item.title ?? item.agenda_title ?? item.agendaTitle ?? item.name ?? 'Agenda item',
     }));
-    const insertedIds = [];
-    for (const row of parsedRows) {
-      const where = { cityId_meetingDate_itemNumber: {
-        cityId: row.cityId,
-        meetingDate: row.meetingDate,
-        itemNumber: row.itemNumber,
-      } };
-      const existing = await prisma.agendaItem.findUnique({ where, select: { id: true } });
-      const saved = await prisma.agendaItem.upsert({ where, create: row, update: row });
-      if (existing) itemsSkipped += 1;
-      else {
-        itemsInserted += 1;
-        insertedIds.push(saved.id);
-      }
-    }
-    if (insertedIds.length > 0) {
-      const detection = await detectConflictsForAgendaItems(insertedIds, { prisma });
+    const result = await upsertAgendaItems(
+      prisma,
+      parsedRows,
+      (row) => ({
+        cityId_meetingDate_itemNumber: {
+          cityId: row.cityId,
+          meetingDate: row.meetingDate,
+          itemNumber: row.itemNumber,
+        },
+      }),
+    );
+    itemsInserted += result.inserted;
+    itemsSkipped += result.skipped;
+    if (result.changedIds.length > 0) {
+      const detection = await detectConflictsForAgendaItems(result.changedIds, { prisma });
       conflictsDetected += detection.inserted;
     }
   }
