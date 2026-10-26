@@ -76,7 +76,7 @@ async function findOrCreateDataSource(prismaClient, cityName) {
 async function upsertAgendaRows(prismaClient, rows, cityName) {
   let inserted = 0;
   let skipped = 0;
-  const insertedIds = [];
+  const changedIds = [];
 
   for (const row of rows) {
     const key = {
@@ -85,18 +85,29 @@ async function upsertAgendaRows(prismaClient, rows, cityName) {
       itemNumber: row.itemNumber,
     };
     const where = { cityId_meetingDate_itemNumber: key };
-    const existing = await prismaClient.agendaItem.findUnique({ where, select: { id: true } });
+    const existing = await prismaClient.agendaItem.findUnique({
+      where,
+      select: { id: true, title: true, description: true, itemText: true },
+    });
     const data = { ...row, cityName };
 
     const saved = await prismaClient.agendaItem.upsert({ where, create: data, update: data });
-    if (existing) skipped += 1;
-    else {
+    if (existing) {
+      skipped += 1;
+      if (
+        (existing.title ?? null) !== (data.title ?? null)
+        || (existing.description ?? null) !== (data.description ?? null)
+        || (existing.itemText ?? null) !== (data.itemText ?? null)
+      ) {
+        changedIds.push(saved.id);
+      }
+    } else {
       inserted += 1;
-      insertedIds.push(saved.id);
+      changedIds.push(saved.id);
     }
   }
 
-  return { inserted, skipped, insertedIds };
+  return { inserted, skipped, changedIds };
 }
 
 async function processCityItems({ cityName, items, prismaClient, parsePdf, fetchImpl, detect, log }) {
@@ -130,8 +141,8 @@ async function processCityItems({ cityName, items, prismaClient, parsePdf, fetch
       const result = await upsertAgendaRows(prismaClient, rows, cityName);
       inserted += result.inserted;
       skipped += result.skipped;
-      if (result.insertedIds.length > 0) {
-        const detection = await detect(result.insertedIds, { prisma: prismaClient });
+      if (result.changedIds.length > 0) {
+        const detection = await detect(result.changedIds, { prisma: prismaClient });
         conflictsDetected += detection.inserted;
       }
     } catch (error) {
