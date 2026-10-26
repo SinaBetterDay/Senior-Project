@@ -9,7 +9,10 @@ import { upsertAgendaItems } from '../../ingestion/upsertAgendaItems.js';
 import { apifySourceDiagnostic, buildApifyActorInput } from '../../ingestion/apifyActorInput.js';
 import { downloadPdf } from '../../jobs/runApifyAgendaScrape.js';
 import { detectConflictsForAgendaItems } from '../../detection/detectConflicts.js';
-import { detectAgendaConflictsSafely } from '../../detection/detectAgendaConflictsSafely.js';
+import {
+  detectAgendaConflictsSafely,
+  getRetryableAgendaItemIds,
+} from '../../detection/detectAgendaConflictsSafely.js';
 
 const router = express.Router();
 
@@ -446,6 +449,46 @@ router.get('/:id/sync/:syncLogId', async (req, res) => {
   } catch (error) {
     console.error('[admin/sources] failed to load sync status', error);
     return res.status(500).json({ error: 'Failed to load sync status.' });
+  }
+});
+
+router.post('/:id/sync/:syncLogId/retry-detection', async (req, res) => {
+  try {
+    const syncLog = await prisma.syncLog.findFirst({
+      where: { id: req.params.syncLogId, dataSourceId: req.params.id },
+    });
+    if (!syncLog) return res.status(404).json({ error: 'Sync run not found.' });
+
+    const agendaItemIds = getRetryableAgendaItemIds(syncLog.detectionErrors);
+    if (agendaItemIds.length === 0) {
+      return res.status(409).json({ error: 'This sync run has no retryable detection failures.' });
+    }
+
+    const detection = await detectAgendaConflictsSafely(
+      agendaItemIds,
+      detectConflictsForAgendaItems,
+      { prisma },
+    );
+    const updated = await prisma.syncLog.update({
+      where: { id: syncLog.id },
+      data: {
+        conflictCandidates: (syncLog.conflictCandidates ?? 0) + detection.conflictCandidates,
+        conflictsDetected: (syncLog.conflictsDetected ?? 0) + detection.conflictsDetected,
+        conflictsSkipped: (syncLog.conflictsSkipped ?? 0) + detection.conflictsSkipped,
+        detectionErrors: detection.detectionErrors,
+      },
+    });
+
+    return res.json({
+      conflictCandidates: updated.conflictCandidates,
+      conflictsDetected: updated.conflictsDetected,
+      conflictsSkipped: updated.conflictsSkipped,
+      detectionErrors: updated.detectionErrors,
+      detectionFailures: updated.detectionErrors.length,
+    });
+  } catch (error) {
+    console.error('[admin/sources] failed to retry conflict detection', error);
+    return res.status(500).json({ error: 'Failed to retry conflict detection.' });
   }
 });
 

@@ -34,3 +34,12 @@ export async function detectAgendaConflictsSafely(
     };
   }
 }
+
+export function getRetryableAgendaItemIds(detectionErrors) {
+  if (!Array.isArray(detectionErrors)) return [];
+  return [...new Set(detectionErrors.flatMap((error) => (
+    Array.isArray(error?.agendaItemIds)
+      ? error.agendaItemIds.filter((id) => typeof id === 'string' && id.length > 0)
+      : []
+  )))];
+}
