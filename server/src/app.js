@@ -26,7 +26,11 @@ export const app = express();
 // --- global middleware -----------------------------------------------------
 app.use(
   cors({
-    origin: process.env.CLIENT_ORIGIN ?? 'http://localhost:5173',
+    origin:
+      process.env.CLIENT_ORIGIN ||
+      (process.env.NODE_ENV === 'production'
+        ? false
+        : 'http://localhost:5173'),
     exposedHeaders: ['X-Request-ID'],
   }),
 );
@@ -71,23 +75,40 @@ app.use((_req, res) => {
 });
 
 // --- error handler ---------------------------------------------------------
-// eslint-disable-next-line no-unused-vars
-app.use((err, _req, res, _next) => {
-  const statusCode = Number.isInteger(err?.statusCode) ? err.statusCode : (err?.status ?? 500);
-  const isProduction = process.env.NODE_ENV === 'production';
+app.use((err, _req, res, next) => {
+  if (res.headersSent) {
+    return next(err);
+  }
 
-  if (statusCode >= 500 || !isProduction) {
+  const candidate = err?.statusCode ?? err?.status;
+  let statusCode =
+    Number.isInteger(candidate) && candidate >= 400 && candidate <= 599
+      ? candidate
+      : 500;
+
+  if (err?.code === 'LIMIT_FILE_SIZE') {
+    statusCode = 413;
+  }
+
+  if (statusCode >= 500) {
     console.error('[server] unhandled error:', err);
   }
 
-  const message =
-    err?.publicMessage ?? (statusCode >= 500
-      ? 'The server could not complete this request. Please try again.'
-      : 'The request could not be processed. Check your input and try again.');
+  let message;
 
-  const body = { error: message };
+  if (statusCode >= 500) {
+    message = 'The server could not complete this request. Please try again.';
+  } else if (statusCode === 413) {
+    message = 'The uploaded file or request body is too large.';
+  } else if (err?.type === 'entity.parse.failed') {
+    message = 'The request body contains invalid JSON.';
+  } else {
+    message =
+      err?.publicMessage ??
+      'The request could not be processed. Check your input and try again.';
+  }
 
-  res.status(statusCode).json(body);
+  return res.status(statusCode).json({ error: message });
 });
 
 export default app;
