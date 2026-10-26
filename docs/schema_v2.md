@@ -41,5 +41,5 @@ cd server
 npx prisma validate
 npx prisma generate
 npx prisma migrate deploy   # fresh Supabase DB → all 13 tables
-npx prisma db seed          # prisma/seed.js: State of California + 6 sample politicians
+npx prisma db seed          # prisma/seed.js: State of California + 6 sample politicians; safe to rerun (upserts)
 ```
