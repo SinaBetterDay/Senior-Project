@@ -216,6 +216,9 @@ model Conflict {
   @@index([agendaItemId, detectedAt], map: "conflicts_agenda_item_detected_at_idx")
   @@index([politicianId, agendaItemId], map: "conflicts_politician_agenda_item_idx")
   @@index([conflictType], map: "conflicts_conflict_type_idx")
+  @@index([detectedAt(sort: Desc), id], map: "conflicts_detected_id_idx")
+  @@index([reviewStatus, detectedAt(sort: Desc), id], map: "conflicts_review_detected_id_idx")
+  @@index([conflictType, detectedAt(sort: Desc), id], map: "conflicts_type_detected_id_idx")
   @@map("conflicts")
 }
 

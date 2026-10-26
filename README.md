@@ -367,3 +367,12 @@ _License and contribution guidelines — to be added in CSC 191_
 <p align="center">
   <sub>Built with accountability in mind — because public trust deserves more than manual spreadsheet cross-checks.</sub>
 </p>
+
+### Public conflict browsing API
+
+The conflict dashboard uses server-side filtering and pagination.
+`GET /api/conflicts` returns data, total, page, and pageSize (default 20, max 100).
+Filters and pagination are preserved in the dashboard URL. Date filters use
+inclusive UTC detection dates. Review-state filtering is public.
+See [SH-326 validation and API contract](SH326-VALIDATION.md) for parameters,
+index deployment, local checks, and pending representative database validation.

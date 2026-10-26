@@ -22,6 +22,7 @@ export const conflictInclude = {
 export function dashboardRow(conflict) {
   return {
     id: conflict.id,
+    reviewStatus: conflict.reviewStatus ?? "pending",
     politicianName: conflict.politician.fullName,
     city:
       conflict.agendaItem.cityName ??
@@ -87,6 +88,7 @@ export function parseExportFilters(query) {
   }
 
   return {
+    reviewStatus: scalar("reviewStatus"),
     city: scalar("city"),
     types: list("types"),
     severities: list("severities").map((value) =>
@@ -102,6 +104,7 @@ export function matchesFilters(row, filters) {
   const date = row.detectedAt.slice(0, 10);
 
   return (
+    (!filters.reviewStatus || row.reviewStatus === filters.reviewStatus) &&
     (!filters.city || row.city === filters.city) &&
     (
       !filters.types.length ||
