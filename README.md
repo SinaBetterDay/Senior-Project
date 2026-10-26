@@ -24,7 +24,7 @@ The system ingests structured agenda data (**Legistar REST**), PDF-only city age
 | Audience | Experience |
 |----------|------------|
 | **Public** | Browse officials, agendas, and flagged overlaps — no login required |
-| **FPPC admins** | Upload Form 700 files, manage sources, review conflict flags — Supabase Auth (no public registration) |
+| **FPPC admins** | Upload Form 700 files, manage/enable/disable sources, review conflict flags, and approve or reconcile politician profiles — Supabase Auth (no public registration) |
 
 ---
 
@@ -118,6 +118,7 @@ cd server
 # Create .env with DATABASE_URL, DIRECT_URL, SUPABASE_URL,
 # SUPABASE_SECRET_KEY, FAIR_ADMIN_EMAIL, APIFY_TOKEN, and APIFY_ACTOR_ID.
 npm install
+npx prisma migrate deploy # includes politician review/reconciliation audit history
 npm run dev             # http://localhost:<PORT from src/index.js>
 
 # 3. Frontend (separate terminal)

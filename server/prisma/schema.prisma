@@ -69,6 +69,23 @@ model Politician {
   @@map("politicians")
 }
 
+/// Durable audit trail for administrator approval and duplicate reconciliation.
+/// `sourcePoliticianId` is intentionally not a foreign key because a successful
+/// merge deletes that source profile; its unique value makes merge retries
+/// idempotent.
+model PoliticianReviewEvent {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  politicianId        String   @map("politician_id") @db.Uuid
+  sourcePoliticianId  String?  @unique @map("source_politician_id") @db.Uuid
+  action              String
+  adminUserId         String   @map("admin_user_id")
+  details             Json?
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([politicianId, createdAt], map: "politician_review_events_politician_created_idx")
+  @@map("politician_review_events")
+}
+
 model Meeting {
   id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   jurisdictionId  String       @map("jurisdiction_id") @db.Uuid
