@@ -32,6 +32,7 @@ vi.mock('../../src/detection/detectConflicts.js', () => ({
 import { prisma } from '../../src/lib/prisma.js';
 import { ApifyClient } from 'apify-client';
 import { getAgendaItems, getMeetings } from '../../src/ingestion/legistarApi.js';
+import { detectConflictsForAgendaItems } from '../../src/detection/detectConflicts.js';
 import sourcesRouter from '../../src/routes/admin/sources.js';
 
 const app = express();
@@ -74,7 +75,7 @@ beforeEach(() => {
   prisma.agendaItem.findUnique.mockResolvedValue(null);
   prisma.agendaItem.upsert.mockImplementation(async ({ create }) => ({ id: 'agenda-1', ...create }));
   prisma.syncLog.create.mockResolvedValue({ id: 'sync-1' });
-  prisma.syncLog.update.mockResolvedValue({ id: 'sync-1' });
+  prisma.syncLog.update.mockImplementation(async ({ where, data }) => ({ id: where.id, ...data }));
   prisma.syncLog.findFirst.mockResolvedValue({
     id: 'sync-1',
     status: 'running',
@@ -302,6 +303,18 @@ describe('on-demand source sync', () => {
       })],
       skipDuplicates: true,
     }));
+    await vi.waitFor(() => expect(detectConflictsForAgendaItems).toHaveBeenCalledWith(
+      ['agenda-1'],
+      { prisma },
+    ));
+    await vi.waitFor(() => expect(prisma.syncLog.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        conflictCandidates: 1,
+        conflictsDetected: 1,
+        conflictsSkipped: 0,
+        detectionErrors: [],
+      }),
+    })));
   });
 
   it('returns the persisted status and result counts for a sync run', async () => {
@@ -313,6 +326,11 @@ describe('on-demand source sync', () => {
       itemsFound: 5,
       itemsInserted: 3,
       itemsSkipped: 2,
+      conflictCandidates: 4,
+      conflictsDetected: 3,
+      conflictsSkipped: 1,
+      detectionErrors: [],
+      detectionFailures: 0,
       errors: null,
     });
 
@@ -325,11 +343,78 @@ describe('on-demand source sync', () => {
       itemsFound: 5,
       itemsInserted: 3,
       itemsSkipped: 2,
+      conflictCandidates: 4,
+      conflictsDetected: 3,
+      conflictsSkipped: 1,
+      detectionErrors: [],
       error: null,
     });
     expect(prisma.syncLog.findFirst).toHaveBeenCalledWith({
       where: { id: 'sync-1', dataSourceId: 'source-1' },
     });
+  });
+
+  it('retries stored detection failures without rerunning agenda ingestion', async () => {
+    prisma.syncLog.findFirst.mockResolvedValue({
+      id: 'sync-1',
+      dataSourceId: 'source-1',
+      conflictCandidates: 0,
+      conflictsDetected: 0,
+      conflictsSkipped: 0,
+      detectionErrors: [{
+        agendaItemIds: ['agenda-1', 'agenda-2'],
+        message: 'detector unavailable',
+      }],
+    });
+    detectConflictsForAgendaItems.mockResolvedValue({
+      totalCandidates: 2,
+      inserted: 1,
+      skipped: 1,
+    });
+
+    const response = await request(app)
+      .post('/api/admin/sources/source-1/sync/sync-1/retry-detection');
+
+    expect(response.status).toBe(200);
+    expect(detectConflictsForAgendaItems).toHaveBeenCalledWith(
+      ['agenda-1', 'agenda-2'],
+      { prisma },
+    );
+    expect(prisma.syncLog.update).toHaveBeenCalledWith({
+      where: { id: 'sync-1' },
+      data: {
+        conflictCandidates: 2,
+        conflictsDetected: 1,
+        conflictsSkipped: 1,
+        detectionErrors: [],
+      },
+    });
+  });
+
+  it('keeps failed detection IDs available for another retry attempt', async () => {
+    prisma.syncLog.findFirst.mockResolvedValue({
+      id: 'sync-1',
+      dataSourceId: 'source-1',
+      conflictCandidates: 0,
+      conflictsDetected: 0,
+      conflictsSkipped: 0,
+      detectionErrors: [{ agendaItemIds: ['agenda-1'], message: 'first failure' }],
+    });
+    detectConflictsForAgendaItems.mockRejectedValue(new Error('still unavailable'));
+
+    const response = await request(app)
+      .post('/api/admin/sources/source-1/sync/sync-1/retry-detection');
+
+    expect(response.status).toBe(200);
+    expect(response.body.detectionErrors).toEqual([{
+      agendaItemIds: ['agenda-1'],
+      message: 'still unavailable',
+    }]);
+    expect(prisma.syncLog.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        detectionErrors: [expect.objectContaining({ agendaItemIds: ['agenda-1'] })],
+      }),
+    }));
   });
 
   it('runs the configured Apify actor and persists its agenda items', async () => {
@@ -370,5 +455,9 @@ describe('on-demand source sync', () => {
         sourceUrl: 'https://city.gov/agenda.pdf',
       }),
     })));
+    await vi.waitFor(() => expect(detectConflictsForAgendaItems).toHaveBeenCalledWith(
+      ['agenda-1'],
+      { prisma },
+    ));
   });
 });
