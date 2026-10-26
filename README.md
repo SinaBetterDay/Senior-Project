@@ -126,7 +126,7 @@ cd Senior-Project
 # 2. Backend
 cd server
 # Create .env with DATABASE_URL, DIRECT_URL, SUPABASE_URL,
-# SUPABASE_SECRET_KEY, APIFY_TOKEN, and APIFY_ACTOR_ID.
+# SUPABASE_SECRET_KEY, FAIR_ADMIN_EMAIL, APIFY_TOKEN, and APIFY_ACTOR_ID.
 npm install
 npm run dev             # http://localhost:<PORT from src/index.js>
 
@@ -151,11 +151,20 @@ npm run dev             # Vite dev server (default port in terminal output)
 | `DATABASE_URL` | Prisma / server | Supabase session pooler URI |
 | `DIRECT_URL` | Prisma Migrate | Direct Postgres connection |
 | `SUPABASE_URL` + `SUPABASE_SECRET_KEY` | server | URL and secret/service-role key; the secret key is server-only |
+| `FAIR_ADMIN_EMAIL` | server | Exact verified Supabase Auth email permitted to use admin endpoints; missing or non-matching values are rejected with 401 |
 | `APIFY_ACTOR_ID` | server | e.g. `fppc-csus~fair-agenda-pdf-scraper` |
 | `GEMINI_API_KEY` | server | Entity resolution band only |
 | `RESEND_API_KEY` | server | Reserved for planned weekly admin digests; currently unused |
 
 The frontend uses its own `client/.env` with `VITE_API_URL`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_ANON_KEY`. Only `VITE_*` values are exposed to the browser; never place `SUPABASE_SECRET_KEY`, database URLs, or API tokens there.
+
+### Production admin verification
+
+Before release, set `FAIR_ADMIN_EMAIL` in the server deployment to the agreed
+Supabase Auth administrator email. Verify that account can call an admin route
+with a valid session, and verify a second valid Supabase account receives 401.
+Do not place the email, service-role key, or any production token in client
+environment variables.
 
 ### _To complete in CSC 191_
 
