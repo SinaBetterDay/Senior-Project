@@ -122,7 +122,7 @@ describe('runApifyAgendaScrape', () => {
 
   it('detects conflicts for newly inserted agenda items and records the count', async () => {
     const state = createPrismaDouble();
-    const detect = vi.fn().mockResolvedValue({ inserted: 2, skipped: 0, totalCandidates: 2 });
+    const detect = vi.fn().mockResolvedValue({ inserted: 2, skipped: 1, totalCandidates: 3 });
 
     const result = await runApifyAgendaScrape({
       prismaClient: state.prisma,
@@ -137,8 +137,51 @@ describe('runApifyAgendaScrape', () => {
     });
 
     expect(detect).toHaveBeenCalledWith(['agenda-1'], { prisma: state.prisma });
-    expect(result.conflictsDetected).toBe(2);
-    expect(state.syncLogs[0].conflictsDetected).toBe(2);
+    expect(result).toMatchObject({
+      conflictCandidates: 3,
+      conflictsDetected: 2,
+      conflictsSkipped: 1,
+      detectionFailures: 0,
+    });
+    expect(state.syncLogs[0]).toMatchObject({
+      conflictCandidates: 3,
+      conflictsDetected: 2,
+      conflictsSkipped: 1,
+      detectionErrors: [],
+    });
+  });
+
+  it('records detection errors without marking successful agenda ingestion as failed', async () => {
+    const state = createPrismaDouble();
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const result = await runApifyAgendaScrape({
+      prismaClient: state.prisma,
+      scrapeAgendaPDFs: vi.fn().mockResolvedValue([{
+        pdf_url: 'https://city.test/agenda.pdf', meeting_date: '2026-10-01', city_name: 'Test City',
+      }]),
+      parsePdf,
+      detect: vi.fn().mockRejectedValue(new Error('detector unavailable')),
+      fetchImpl: vi.fn().mockImplementation(async () => pdfResponse()),
+      log: vi.fn(),
+    });
+
+    expect(result).toMatchObject({
+      inserted: 1,
+      errors: 0,
+      conflictCandidates: 0,
+      conflictsDetected: 0,
+      conflictsSkipped: 0,
+      detectionFailures: 1,
+      detectionErrors: [expect.objectContaining({ message: 'detector unavailable' })],
+    });
+    expect(state.syncLogs[0]).toMatchObject({
+      status: 'success',
+      itemsInserted: 1,
+      errors: null,
+      detectionErrors: [expect.objectContaining({ message: 'detector unavailable' })],
+    });
+    expect(errorLog).toHaveBeenCalled();
+    errorLog.mockRestore();
   });
 
   it('does not duplicate or redetect unchanged agenda items when the same actor result is rerun', async () => {

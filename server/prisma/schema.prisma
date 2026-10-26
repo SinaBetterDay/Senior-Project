@@ -334,7 +334,10 @@ model SyncLog {
   itemsFound      Int         @default(0) @map("items_found")
   itemsInserted   Int         @default(0) @map("items_inserted")
   itemsSkipped    Int         @default(0) @map("items_skipped")
+  conflictCandidates Int      @default(0) @map("conflict_candidates")
   conflictsDetected Int       @default(0) @map("conflicts_detected")
+  conflictsSkipped Int        @default(0) @map("conflicts_skipped")
+  detectionErrors Json?       @map("detection_errors")
   errors          Json?
 
   @@index([dataSourceId, startedAt], map: "sync_logs_data_source_id_started_at_idx")

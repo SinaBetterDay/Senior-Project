@@ -32,7 +32,7 @@ All four have `filing_id → form700_filings(id) ON DELETE CASCADE` and `politic
 | Table | Columns | Used by |
 |-------|---------|---------|
 | `data_sources` | `city_name`, `source_type` (`legistar`/`apify`/`pdf`), `legistar_base_url`, `legistar_client_id`, `apify_actor_id`, `start_url`, `enabled` (default true), `last_synced_at`, `last_error`, `jurisdiction_id` | `nightlySync.js` selects `WHERE source_type = 'legistar' AND enabled`; admin sources page |
-| `sync_logs` | `data_source_id`, `source_type`, `status` (`running`/`success`/`failed`), `started_at`, `completed_at`, `items_found`, `items_inserted`, `items_skipped`, `conflicts_detected`, `errors` (jsonb) | nightly cron, manual sync, weekly admin digest |
+| `sync_logs` | `data_source_id`, `source_type`, `status` (`running`/`success`/`failed`), `started_at`, `completed_at`, `items_found`, `items_inserted`, `items_skipped`, `conflict_candidates`, `conflicts_detected`, `conflicts_skipped`, `detection_errors` (jsonb), `errors` (jsonb) | Ingestion errors and detection errors are recorded separately; conflict totals are persisted by nightly and admin syncs. |
 
 ## Commands
 

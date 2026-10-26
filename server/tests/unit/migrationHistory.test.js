@@ -34,4 +34,17 @@ describe('Prisma migration history', () => {
     expect(conflictMigrations[0].sql).toMatch(/REFERENCES\s+"politicians"\("id"\)/i);
     expect(conflictMigrations[0].sql).toMatch(/REFERENCES\s+"agenda_items"\("id"\)/i);
   });
+
+  it('adds dedicated sync-log fields for conflict detection outcomes', async () => {
+    const migrations = await readMigrations();
+    const detectionMetricsMigration = migrations.find(
+      ({ name }) => name === '20261025233000_add_detection_sync_metrics',
+    );
+
+    expect(detectionMetricsMigration).toBeDefined();
+    expect(detectionMetricsMigration.sql).toMatch(/ALTER TABLE\s+"sync_logs"/i);
+    expect(detectionMetricsMigration.sql).toMatch(/"conflict_candidates"\s+INTEGER/i);
+    expect(detectionMetricsMigration.sql).toMatch(/"conflicts_skipped"\s+INTEGER/i);
+    expect(detectionMetricsMigration.sql).toMatch(/"detection_errors"\s+JSONB/i);
+  });
 });

@@ -307,6 +307,14 @@ describe('on-demand source sync', () => {
       ['agenda-1'],
       { prisma },
     ));
+    await vi.waitFor(() => expect(prisma.syncLog.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        conflictCandidates: 1,
+        conflictsDetected: 1,
+        conflictsSkipped: 0,
+        detectionErrors: [],
+      }),
+    })));
   });
 
   it('returns the persisted status and result counts for a sync run', async () => {
@@ -318,6 +326,11 @@ describe('on-demand source sync', () => {
       itemsFound: 5,
       itemsInserted: 3,
       itemsSkipped: 2,
+      conflictCandidates: 4,
+      conflictsDetected: 3,
+      conflictsSkipped: 1,
+      detectionErrors: [],
+      detectionFailures: 0,
       errors: null,
     });
 
@@ -330,6 +343,10 @@ describe('on-demand source sync', () => {
       itemsFound: 5,
       itemsInserted: 3,
       itemsSkipped: 2,
+      conflictCandidates: 4,
+      conflictsDetected: 3,
+      conflictsSkipped: 1,
+      detectionErrors: [],
       error: null,
     });
     expect(prisma.syncLog.findFirst).toHaveBeenCalledWith({

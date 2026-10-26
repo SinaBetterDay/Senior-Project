@@ -9,6 +9,7 @@ import { upsertAgendaItems } from '../../ingestion/upsertAgendaItems.js';
 import { apifySourceDiagnostic, buildApifyActorInput } from '../../ingestion/apifyActorInput.js';
 import { downloadPdf } from '../../jobs/runApifyAgendaScrape.js';
 import { detectConflictsForAgendaItems } from '../../detection/detectConflicts.js';
+import { detectAgendaConflictsSafely } from '../../detection/detectAgendaConflictsSafely.js';
 
 const router = express.Router();
 
@@ -154,14 +155,16 @@ async function runLegistarSource(source) {
         select: { id: true },
       })
     : [];
-  const detection = insertedRows.length > 0
-    ? await detectConflictsForAgendaItems(insertedRows.map((row) => row.id), { prisma })
-    : { inserted: 0 };
+  const detection = await detectAgendaConflictsSafely(
+    insertedRows.map((row) => row.id),
+    detectConflictsForAgendaItems,
+    { prisma },
+  );
   return {
     itemsFound: rows.length,
     itemsInserted: result.count,
     itemsSkipped: rows.length - result.count,
-    conflictsDetected: detection.inserted,
+    ...detection,
   };
 }
 
@@ -181,7 +184,10 @@ async function runApifySource(source) {
   }
   let itemsInserted = 0;
   let itemsSkipped = 0;
+  let conflictCandidates = 0;
   let conflictsDetected = 0;
+  let conflictsSkipped = 0;
+  const detectionErrors = [];
   for (const item of items) {
     const url = item.pdf_url ?? item.pdfUrl ?? item.agenda_url ?? item.url ?? null;
     const date = item.meeting_date ?? item.meetingDate ?? null;
@@ -210,15 +216,26 @@ async function runApifySource(source) {
     itemsInserted += result.inserted;
     itemsSkipped += result.skipped;
     if (result.changedIds.length > 0) {
-      const detection = await detectConflictsForAgendaItems(result.changedIds, { prisma });
-      conflictsDetected += detection.inserted;
+      const detection = await detectAgendaConflictsSafely(
+        result.changedIds,
+        detectConflictsForAgendaItems,
+        { prisma },
+      );
+      conflictCandidates += detection.conflictCandidates;
+      conflictsDetected += detection.conflictsDetected;
+      conflictsSkipped += detection.conflictsSkipped;
+      detectionErrors.push(...detection.detectionErrors);
     }
   }
   return {
     itemsFound: items.length,
     itemsInserted,
     itemsSkipped,
+    conflictCandidates,
     conflictsDetected,
+    conflictsSkipped,
+    detectionErrors,
+    detectionFailures: detectionErrors.length,
   };
 }
 
@@ -238,7 +255,11 @@ async function executeSourceSync(source, syncLogId) {
           itemsFound: result.itemsFound,
           itemsInserted: result.itemsInserted,
           itemsSkipped: result.itemsSkipped,
+          conflictCandidates: result.conflictCandidates ?? 0,
           conflictsDetected: result.conflictsDetected ?? 0,
+          conflictsSkipped: result.conflictsSkipped ?? 0,
+          detectionErrors: result.detectionErrors ?? [],
+          detectionFailures: result.detectionErrors?.length ?? 0,
         },
       }),
       prisma.dataSource.update({
@@ -415,6 +436,11 @@ router.get('/:id/sync/:syncLogId', async (req, res) => {
       itemsFound: syncLog.itemsFound,
       itemsInserted: syncLog.itemsInserted,
       itemsSkipped: syncLog.itemsSkipped,
+      conflictCandidates: syncLog.conflictCandidates,
+      conflictsDetected: syncLog.conflictsDetected,
+      conflictsSkipped: syncLog.conflictsSkipped,
+      detectionErrors: syncLog.detectionErrors,
+      detectionFailures: syncLog.detectionErrors?.length ?? 0,
       error: syncErrorMessage(syncLog.errors),
     });
   } catch (error) {

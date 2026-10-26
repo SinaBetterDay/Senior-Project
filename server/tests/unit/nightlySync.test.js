@@ -38,7 +38,7 @@ describe("runLegistarSyncForCity", () => {
     });
     const detectConflictsForAgendaItems = vi.fn().mockResolvedValue({
       inserted: 2,
-      skipped: 0,
+      skipped: 1,
       totalCandidates: 2,
     });
 
@@ -71,7 +71,40 @@ describe("runLegistarSyncForCity", () => {
       itemsInserted: 1,
       itemsSkipped: 1,
       insertedAgendaItemIds: ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+      conflictCandidates: 2,
       conflictsDetected: 2,
+      conflictsSkipped: 1,
+      detectionErrors: [],
+    });
+  });
+
+  it("records detection failures separately without failing agenda insertion", async () => {
+    fetchLegistarAgendaItemsForDataSource.mockResolvedValue({
+      meetings: [{ EventId: 10 }],
+      allItems: [{
+        meetingId: 10,
+        meeting: { EventBodyName: "City Council" },
+        item: { EventItemId: 100, EventItemTitle: "Acme Development contract" },
+      }],
+    });
+    const detectConflictsForAgendaItems = vi.fn().mockRejectedValue(new Error("detector unavailable"));
+
+    const result = await runLegistarSyncForCity(
+      createSql(["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"]),
+      { id: "source-1", city_name: "Test City", legistar_base_url: "https://example.test" },
+      new Set(["legistar_item_id", "source_type"]),
+      { detectConflictsForAgendaItems },
+    );
+
+    expect(result).toMatchObject({
+      itemsInserted: 1,
+      conflictsDetected: 0,
+      conflictCandidates: 0,
+      conflictsSkipped: 0,
+      detectionErrors: [{
+        agendaItemIds: ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+        message: "detector unavailable",
+      }],
     });
   });
 
