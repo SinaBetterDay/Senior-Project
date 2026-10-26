@@ -10,5 +10,6 @@ node_modules/
 
 # Build / OS
 dist/
+coverage/
 .DS_Store
 .vercel/
