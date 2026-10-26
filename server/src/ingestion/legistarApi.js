@@ -21,15 +21,17 @@ function sleep(ms) {
  * @returns {Promise<object>} - the JSON response
  */
 async function apiRequest(url, options = {}) {
+  const timeoutMs = options.timeoutMs ?? 30000;
+  const { timeoutMs: _timeoutMs, ...requestOptions } = options;
   const defaultOptions = {
     headers: {
       'Accept': 'application/json',
       'User-Agent': 'FAIR-Legistar-API/1.0'
     },
-    timeout: 30000
+    signal: AbortSignal.timeout(timeoutMs),
   };
 
-  const mergedOptions = { ...defaultOptions, ...options };
+  const mergedOptions = { ...defaultOptions, ...requestOptions };
 
   try {
     const response = await fetch(url, mergedOptions);

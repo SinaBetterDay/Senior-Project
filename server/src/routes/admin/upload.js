@@ -23,7 +23,7 @@ import multer from "multer";
 import * as XLSX from "xlsx";
 
 import { prisma } from "../../lib/prisma.js";
-import { archiveWorkbook, XLSX_MIME } from "../../lib/storage.js";
+import { archiveWorkbook, deleteWorkbook, XLSX_MIME } from "../../lib/storage.js";
 import { parseCoverPage } from "../../parsers/coverPage.js";
 import { parseScheduleA } from "../../parsers/scheduleA.js";
 import { parseScheduleA2 } from "../../parsers/scheduleA2.js";
@@ -278,12 +278,28 @@ router.post("/form700", receiveFile, async (req, res, next) => {
     } catch (error) {
       // Roll back the committed filing (schedule rows cascade) so a failed
       // archive never leaves a half-ingested filing behind.
+      if (archivedPath) {
+        try {
+          await deleteWorkbook(archivedPath);
+        } catch (cleanupError) {
+          console.error("[upload] failed to delete archived workbook after archive error:", {
+            filingId,
+            politicianId,
+            archivedPath,
+            error: cleanupError?.message ?? cleanupError,
+          });
+        }
+      }
       try {
         await prisma.form700Filing.delete({ where: { id: filingId } });
       } catch (cleanupError) {
-        console.error("[upload] failed to delete filing after archive error:", cleanupError);
+        console.error("[upload] failed to delete filing after archive error:", {
+          filingId,
+          politicianId,
+          error: cleanupError?.message ?? cleanupError,
+        });
       }
-      const err = new Error(`Failed to archive workbook: ${error?.message ?? error}`);
+      const err = new Error("Failed to archive workbook.");
       err.statusCode = 500;
       err.publicMessage = "Failed to archive workbook. Contact an administrator to check storage before uploading again.";
       return next(err);

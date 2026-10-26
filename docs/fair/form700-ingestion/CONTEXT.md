@@ -30,7 +30,7 @@ All parsers are pure and share one signature — `parseScheduleX(buffer, filingI
 | `gross_income_range` | `INCLUDE YOUR PRO RATA SHARE OF GROSS INCOME TO ENTITY/TRUST` (section 2) | range string, e.g. `$0 - $499` |
 | `filing_id` | — | passed in by the caller |
 
-Headers are matched case-insensitively after collapsing whitespace/line breaks, exact match first then prefix match, so the left-most duplicate header wins. Section 3 (sources of income ≥ $10,000) and section 4 (investments/real property held by the entity) are not ingested yet.
+Headers are matched case-insensitively after collapsing whitespace/line breaks, exact match first then prefix match, so the left-most duplicate header wins. Section 3 (sources of income ≥ $10,000) and section 4 (investments/real property held by the entity) are not ingested yet. Broader coverage is tracked separately in SH-344, “Expand Schedule A-2 entity-held asset and income coverage,” and remains optional pending confirmed requirements and conflict-rule applicability.
 
 ## Boundaries
 

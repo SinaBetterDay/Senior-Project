@@ -1,25 +1,40 @@
-# Backend workspace — FAIR (`server/`)
+# Backend workspace (`server/`)
 
-## Role
+## Entry points
 
-**Node.js + Express** API and integration layer: Prisma (when wired), Supabase (DB, Auth, Storage), parsing/matching orchestration, scheduled jobs.
+- `src/index.js`: loads env, starts cron, listens on the port.
+- `src/app.js`: Express middleware and authoritative route mounting; import this in HTTP tests.
+- `prisma/schema.prisma`: application data model and camelCase-to-snake_case mappings.
+- `src/routes/`: public and authenticated admin endpoints.
+- `src/ingestion/`, `src/parsers/`, `src/detection/`: pipeline stages.
+- `src/jobs/`: runnable synchronization and scheduler code.
+- `src/lib/`: env, Prisma, Supabase, auth, and Storage adapters.
+- `tests/unit/` and `tests/integration/`: Vitest suites.
 
-## Stack (target)
+## Active route groups
 
-- Express, Prisma ORM, PostgreSQL (Supabase).
-- **Supabase Auth:** admin login only (no public signup).
-- **Supabase Storage:** archive raw **Form 700 XLSX** uploads.
-- Parsing: `pdf-parse`, `xlsx` (SheetJS); matching: `fuse.js`; **Gemini 1.5 Flash** for ambiguous matches (fuzzy **0.7–0.85**).
-- Email: **Resend** (weekly digests).
-- Schedules: **`node-cron`** — **do not** introduce BullMQ/Redis for this project unless explicitly requested.
+Public: `/health`, `/api/conflicts`, `/api/politicians`, `/api/agenda`, `/api/search`.
 
-## Boundaries
+Admin (Supabase JWT required): `/api/admin/sources`, `/api/admin/reports`, `/api/admin/politicians`, `/api/admin/sync`, `/api/admin/upload`.
 
-- Keep **service role** keys and Gemini/Resend keys **only** on the server.
-- Coordinate schema changes with `supabase/CONTEXT.md` and migrations in `supabase/migrations/`.
+`src/routes/adminRoutes.js`, `src/queues/syncQueue.js`, and `src/workers/syncWorker.js` are not mounted by `app.js`; verify before modifying them.
 
-## Related docs
+## Data and service boundaries
 
-- Frontend: `client/CONTEXT.md`
-- Jobs: `docs/fair/cron-jobs/CONTEXT.md`
-- Matching: `docs/fair/entity-resolution/CONTEXT.md`
+- Prisma owns application schema/migrations under `server/prisma/`; see `supabase/CONTEXT.md` for Supabase-only SQL.
+- Prisma uses camelCase fields. Raw SQL and Supabase JS use mapped snake_case table/column names.
+- Raw Form 700 workbooks are archived in Supabase Storage; privileged keys remain server-only.
+- Gemini is optional and used only in explicit ambiguous matching paths. Resend notifications are not implemented.
+- Use `node-cron`; do not introduce Redis/BullMQ without an explicit architecture change.
+
+## Commands
+
+```bash
+cd server
+npm test
+npm run test:integration   # live test remains opt-in through env
+npx prisma validate
+npx prisma generate
+```
+
+Use `DIRECTORY.md` to select the feature guide and exact tests for a task.

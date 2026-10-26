@@ -7,6 +7,8 @@ import cors from 'cors';
 import express from 'express';
 
 import { requireAdmin } from './lib/auth.js';
+import { prisma } from './lib/prisma.js';
+import { requestTiming } from './middleware/requestTiming.js';
 import agendaRouter from './routes/agenda.js';
 import conflictsRouter from './routes/conflicts.js';
 import politiciansRouter from './routes/politicians.js';
@@ -25,13 +27,25 @@ export const app = express();
 app.use(
   cors({
     origin: process.env.CLIENT_ORIGIN ?? 'http://localhost:5173',
+    exposedHeaders: ['X-Request-ID'],
   }),
 );
 app.use(express.json());
+app.use(requestTiming);
 
 // --- health ----------------------------------------------------------------
 app.get('/health', (_req, res) => {
   res.status(200).json({ status: 'ok' });
+});
+
+app.get('/health/ready', async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.status(200).json({ status: 'ready', database: 'ok' });
+  } catch (error) {
+    console.error('[health] database readiness check failed:', error);
+    res.status(503).json({ status: 'unavailable', database: 'error' });
+  }
 });
 
 // --- public API ------------------------------------------------------------

@@ -41,9 +41,16 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
-          cache-dependency-path: server/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+            server/package-lock.json
+            apify/package-lock.json
+
+      - name: Install repository dependencies
+        run: npm ci
 
       - name: Install backend dependencies
         working-directory: server
@@ -53,6 +60,13 @@ jobs:
         working-directory: client
         run: npm ci --include=dev
 
+      - name: Install Apify Actor dependencies
+        working-directory: apify
+        run: npm ci
+
+      - name: Validate documentation navigation
+        run: npm run docs:check
+
       - name: Generate Prisma client
         working-directory: server
         run: npx prisma generate
@@ -61,6 +75,13 @@ jobs:
         working-directory: server
         run: npx prisma migrate deploy
 
-      - name: Run unit tests
-        working-directory: server
+      - name: Run all unit tests
         run: npm test
+
+      - name: Type-check and build frontend
+        working-directory: client
+        run: npm run typecheck && npm run build
+
+      - name: Build Apify Actor
+        working-directory: apify
+        run: npm run build

@@ -7,6 +7,10 @@ const router = express.Router();
 
 router.get("/", async (_req, res) => {
   try {
+    const requestedLimit = Number.parseInt(String(_req.query.limit ?? ""), 10);
+    const take = Number.isFinite(requestedLimit)
+      ? Math.max(1, Math.min(requestedLimit, 100))
+      : undefined;
     const agendaItems = await prisma.agendaItem.findMany({
       select: {
         id: true,
@@ -24,6 +28,7 @@ router.get("/", async (_req, res) => {
       orderBy: {
         meetingDate: "desc",
       },
+      ...(take ? { take } : {}),
     });
 
     const data = agendaItems.map((item) => ({

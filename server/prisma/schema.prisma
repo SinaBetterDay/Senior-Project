@@ -69,6 +69,23 @@ model Politician {
   @@map("politicians")
 }
 
+/// Durable audit trail for administrator approval and duplicate reconciliation.
+/// `sourcePoliticianId` is intentionally not a foreign key because a successful
+/// merge deletes that source profile; its unique value makes merge retries
+/// idempotent.
+model PoliticianReviewEvent {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  politicianId        String   @map("politician_id") @db.Uuid
+  sourcePoliticianId  String?  @unique @map("source_politician_id") @db.Uuid
+  action              String
+  adminUserId         String   @map("admin_user_id")
+  details             Json?
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([politicianId, createdAt], map: "politician_review_events_politician_created_idx")
+  @@map("politician_review_events")
+}
+
 model Meeting {
   id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   jurisdictionId  String       @map("jurisdiction_id") @db.Uuid
@@ -100,6 +117,8 @@ model AgendaItem {
   sourceType  String    @default("legistar") @map("source_type")
   /// Raw agenda text for a single item (PDF / Apify sources).
   itemText    String?   @map("item_text")
+  /// Original agenda document URL for traceability and admin review.
+  sourceUrl   String?   @map("source_url")
   /// Free-form city identifier used by the PDF/Apify pipelines before a
   /// Jurisdiction row exists.
   cityId      String?   @map("city_id")
@@ -332,7 +351,10 @@ model SyncLog {
   itemsFound      Int         @default(0) @map("items_found")
   itemsInserted   Int         @default(0) @map("items_inserted")
   itemsSkipped    Int         @default(0) @map("items_skipped")
+  conflictCandidates Int      @default(0) @map("conflict_candidates")
   conflictsDetected Int       @default(0) @map("conflicts_detected")
+  conflictsSkipped Int        @default(0) @map("conflicts_skipped")
+  detectionErrors Json?       @map("detection_errors")
   errors          Json?
 
   @@index([dataSourceId, startedAt], map: "sync_logs_data_source_id_started_at_idx")

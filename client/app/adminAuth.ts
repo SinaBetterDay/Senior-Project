@@ -35,10 +35,20 @@ export async function getAdminAccessToken() { return (await getAdminSession()).a
 export function clearAdminSession() { window.localStorage.removeItem(SESSION_KEY); window.sessionStorage.removeItem(SESSION_KEY); window.localStorage.removeItem("adminAccessToken"); window.localStorage.removeItem("isAdmin"); }
 export async function signOut() { const session = readSession(); clearAdminSession(); if (!session) return; try { const { url, anonKey } = authConfig(); await request(`${url}/auth/v1/logout`, { method: "POST", headers: { apikey: anonKey, Authorization: `Bearer ${session.access_token}` } }); } catch { /* best effort */ } }
 export async function adminFetch(path: string, init: RequestInit = {}) {
+  const startedAt = performance.now();
+  const method = init.method ?? "GET";
+  console.debug("[admin-auth] session start", { method, path, apiUrl: API_URL });
   let token: string;
-  token = await getAdminAccessToken();
+  try {
+    token = await getAdminAccessToken();
+    console.debug("[admin-auth] session ready", { method, path, elapsedMs: Math.round(performance.now() - startedAt) });
+  } catch (error) {
+    console.error("[admin-auth] session failed", { method, path, elapsedMs: Math.round(performance.now() - startedAt), errorName: error instanceof Error ? error.name : typeof error });
+    throw error;
+  }
   const headers = new Headers(init.headers); headers.set("Authorization", `Bearer ${token}`);
   const response = await request(`${API_URL}${path}`, { ...init, headers });
+  console.debug("[admin-auth] API response", { method, path, status: response.status, elapsedMs: Math.round(performance.now() - startedAt), requestId: response.headers.get("X-Request-ID") });
   if (response.status === 401) { clearAdminSession(); window.location.assign("/admin/login"); }
   return response;
 }

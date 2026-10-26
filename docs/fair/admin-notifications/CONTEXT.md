@@ -1,15 +1,7 @@
-# Workspace — Admin notifications (Resend)
+# Workspace — admin notifications (planned)
 
-## Role
+Weekly admin digests through Resend are a backlog/design item, **not an implemented feature**. There is currently no Resend dependency, mail service, template, route, job, or test in `server/`.
 
-Send **weekly digests** (and other admin-only emails) via **Resend** — summaries of new flags, sync health, or review queues.
+If implemented, keep recipients admin-only, keep API keys on the server, add focused tests, and connect scheduling through the chosen active scheduler. Do not infer implementation from `RESEND_API_KEY` documentation alone.
 
-## Boundaries
-
-- Recipients are **admins** only; no bulk mail to public users from this pathway unless product requirements change.
-- API keys stay on **server**; templates live in `server/` or a dedicated templates folder as you adopt.
-
-## Related docs
-
-- `server/CONTEXT.md`
-- `../cron-jobs/CONTEXT.md` (schedule digest sends)
+Related: `server/CONTEXT.md`, `../cron-jobs/CONTEXT.md`.

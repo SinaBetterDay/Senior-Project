@@ -22,6 +22,12 @@ export const MATCH_BANDS = {
   GEMINI_MIN: 0.7,
 };
 
+export const ENTITY_RESOLUTION = {
+  GEMINI_MODEL: "gemini-1.5-flash",
+  REQUEST_TIMEOUT_MS: 5000,
+  MAX_AGENDA_TEXT_CHARS: 2000,
+};
+
 /**
  * Public agencies and similar generic entities that can appear in disclosures
  * but must never create a named-entity conflict by themselves. Keep this list

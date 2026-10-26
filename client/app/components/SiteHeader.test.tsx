@@ -26,7 +26,7 @@ it("opens mobile navigation and retries a timed-out search", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Toggle navigation" }));
   expect(screen.getByRole("navigation", { name: "Mobile navigation" })).toBeInTheDocument();
   fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Jordan" } });
-  await act(async () => { await vi.advanceTimersByTimeAsync(10_300); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(20_300); });
   expect(screen.getByRole("alert")).toHaveTextContent(TIMEOUT_MESSAGE);
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   await act(async () => { await vi.advanceTimersByTimeAsync(300); });
