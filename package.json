@@ -3,6 +3,7 @@
     "docs:check": "node scripts/check-docs.mjs",
     "test:docs": "node --test scripts/check-docs.test.mjs",
     "test": "npm run test:docs && npm --prefix client test && npm --prefix server test && npm --prefix apify test",
+    "test:functional": "npm --prefix server run test:functional",
     "test:coverage": "npm --prefix client run test:coverage && npm --prefix server run test:coverage && npm --prefix apify run test:coverage"
   },
   "dependencies": {
