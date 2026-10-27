@@ -78,6 +78,11 @@ jobs:
       - name: Run all unit tests
         run: npm test
 
+      - name: Run core functional journey
+        env:
+          RUN_FUNCTIONAL_TESTS: "true"
+        run: npm run test:functional
+
       - name: Type-check and build frontend
         working-directory: client
         run: npm run typecheck && npm run build

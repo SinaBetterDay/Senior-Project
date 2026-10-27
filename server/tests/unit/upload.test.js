@@ -42,6 +42,10 @@ vi.mock("../../src/utils/findOrCreatePolitician.js", () => ({
   findOrCreatePolitician: vi.fn(),
 }));
 
+vi.mock("../../src/detection/redetectDisclosure.js", () => ({
+  redetectDisclosureAgendaItems: vi.fn(),
+}));
+
 // Belt and braces: app.js does not schedule cron, but never let a test touch it.
 vi.mock("../../src/jobs/scheduleCronJobs.js", () => ({ scheduleCronJobs: vi.fn() }));
 
@@ -50,6 +54,7 @@ import { requireAdmin } from "../../src/lib/auth.js";
 import { prisma } from "../../src/lib/prisma.js";
 import { archiveWorkbook, deleteWorkbook, XLSX_MIME } from "../../src/lib/storage.js";
 import { findOrCreatePolitician } from "../../src/utils/findOrCreatePolitician.js";
+import { redetectDisclosureAgendaItems } from "../../src/detection/redetectDisclosure.js";
 
 const ENDPOINT = "/api/admin/upload/form700";
 const validBuffer = fs.readFileSync(path.resolve("tests/fixtures/form700-valid.xlsx"));
@@ -89,6 +94,14 @@ beforeEach(() => {
   }
   archiveWorkbook.mockResolvedValue(ARCHIVED_PATH);
   deleteWorkbook.mockResolvedValue(undefined);
+  redetectDisclosureAgendaItems.mockResolvedValue({
+    agendaItemsProcessed: 2,
+    conflictCandidates: 1,
+    conflictsDetected: 1,
+    conflictsSkipped: 0,
+    detectionErrors: [],
+    skippedReason: null,
+  });
 });
 
 describe("POST /api/admin/upload/form700", () => {
@@ -102,6 +115,14 @@ describe("POST /api/admin/upload/form700", () => {
       politician: { name: "James M Gore", slug: "james-m-gore" },
       schedules_parsed: { A: 39, B: 15, CDE: 24, A2: 17 },
       archived_path: ARCHIVED_PATH,
+      detection: {
+        agenda_items_processed: 2,
+        conflict_candidates: 1,
+        conflicts_detected: 1,
+        conflicts_skipped: 0,
+        failures: [],
+        skipped_reason: null,
+      },
     });
 
     // Politician resolved from the cover-page/filer metadata, not a form field.
@@ -167,6 +188,11 @@ describe("POST /api/admin/upload/form700", () => {
     expect(prisma.form700Filing.update).toHaveBeenCalledWith({
       where: { id: FILING_ID },
       data: { archivedPath: ARCHIVED_PATH, storagePath: ARCHIVED_PATH },
+    });
+    expect(redetectDisclosureAgendaItems).toHaveBeenCalledWith({
+      politicianId: POLITICIAN_ID,
+      filingYear: 2019,
+      prisma,
     });
     expect(prisma.form700Filing.delete).not.toHaveBeenCalled();
   });

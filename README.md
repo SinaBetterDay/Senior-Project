@@ -177,6 +177,7 @@ FAIR uses **Vitest** across the React client, Express server, and Apify Actor. F
 |------|------|-------|
 | Form 700 schedule parsers | `server/tests/unit/` | Schedules A, B, C/D/E |
 | Legistar ingestion | `server/tests/integration/legistarIngestion.test.js` | Integration |
+| Core upload → ingestion → detection → review → public display journey | `server/tests/functional/coreJourney.test.js` | Database-backed functional test |
 | Fixtures | `server/tests/fixtures/*.xlsx` | Valid + malformed samples |
 | Frontend UI and auth helpers | `client/app/**/*.test.ts(x)` | Vitest + React Testing Library |
 | Apify discovery, network, runtime, and scraping | `apify/tests/*.test.ts` | Vitest |
@@ -187,6 +188,10 @@ npm test
 
 # Generate text, HTML, and LCOV coverage reports for each application
 npm run test:coverage
+
+# Run the deterministic database-backed core journey against an isolated migrated
+# PostgreSQL database whose DATABASE_URL and DIRECT_URL contain "fair_test"
+RUN_FUNCTIONAL_TESTS=true npm run test:functional
 
 # Run a package in watch mode while developing
 npm --prefix client run test:watch
@@ -202,12 +207,14 @@ npm --prefix apify run build
 
 Coverage reports are written to each package's ignored `coverage/` directory. Coverage is measured across application source files, but no percentage gate is enforced yet; establish thresholds from the recorded baseline instead of selecting an arbitrary target.
 
+The core functional test runs automatically in CI after Prisma migrations. It uses the real Express routes, Prisma database, Form 700 parsers, Legistar and Apify/PDF ingestion services, conflict detector, review persistence, search, CSV export, and report template. Supabase Auth/Storage, upstream Legistar/Apify/PDF network responses, and Chromium's PDF bytes are deterministic test doubles so the scenario remains repeatable and does not require production credentials.
+
 The admin login stores the complete Supabase session under `fair.admin.session`, including the refresh token used to renew an expired access token. If the public Supabase URL or anon key is missing or still contains the placeholder value from `client/.env.example`, the login page displays setup guidance instead of exposing a fake privileged session.
 
 ### _To complete in CSC 191_
 
 - [ ] Integration tests for fuse.js + Gemini resolution boundaries (0.7 / 0.85)
-- [ ] E2E smoke tests for public browse and admin upload (Playwright or Cypress)
+- [ ] Add a browser-driven staging smoke test on top of the database-backed core functional journey
 - [ ] Coverage threshold in [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
 
 ---

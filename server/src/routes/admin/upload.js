@@ -11,7 +11,7 @@
  * archive step fails, so no orphan row or object is left behind).
  *
  * Responses
- *   200 { filing_id, politician_id, schedules_parsed: { A, B, CDE, A2 }, archived_path }
+ *   200 { filing_id, politician_id, schedules_parsed: { A, B, CDE, A2 }, archived_path, detection }
  *   400 bad/missing file, wrong MIME, unreadable XLSX, unrecognised sheets,
  *       filer/filing year could not be determined
  *   409 filing already exists for this politician + filing year
@@ -30,6 +30,7 @@ import { parseScheduleA2 } from "../../parsers/scheduleA2.js";
 import { parseScheduleB } from "../../parsers/scheduleB.js";
 import { parseScheduleCDE } from "../../parsers/scheduleCDE.js";
 import { findOrCreatePolitician } from "../../utils/findOrCreatePolitician.js";
+import { redetectDisclosureAgendaItems } from "../../detection/redetectDisclosure.js";
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
 
@@ -309,6 +310,11 @@ router.post("/form700", receiveFile, async (req, res, next) => {
       where: { id: politicianId },
       select: { fullName: true, slug: true },
     });
+    const detection = await redetectDisclosureAgendaItems({
+      politicianId,
+      filingYear,
+      prisma,
+    });
 
     return res.status(200).json({
       filing_id: filingId,
@@ -318,6 +324,14 @@ router.post("/form700", receiveFile, async (req, res, next) => {
         : null,
       schedules_parsed: schedulesParsed,
       archived_path: archivedPath,
+      detection: {
+        agenda_items_processed: detection.agendaItemsProcessed,
+        conflict_candidates: detection.conflictCandidates,
+        conflicts_detected: detection.conflictsDetected,
+        conflicts_skipped: detection.conflictsSkipped,
+        failures: detection.detectionErrors,
+        skipped_reason: detection.skippedReason,
+      },
     });
   } catch (error) {
     return next(error);
