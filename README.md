@@ -231,6 +231,19 @@ The checked-in scheduled workflow files contain only `# disabled`. If re-enabled
 - [ ] Scheduled workflow notifications and failure alerts configured
 - [ ] Post-deploy smoke checklist (health route, sample ingestion, admin login)
 
+### Backend CORS configuration
+
+Set `CLIENT_ORIGIN` in `server/.env` to the frontend's exact origin,
+including its scheme and port when applicable, without a trailing slash.
+
+Local example: `CLIENT_ORIGIN=http://localhost:5173`
+
+Production example: `CLIENT_ORIGIN=https://your-app.vercel.app`
+
+Development defaults to `http://localhost:5173` when unset.
+Production disables CORS when `CLIENT_ORIGIN` is unset.
+CORS controls browser access; admin routes also require authentication.
+
 ---
 
 ## CSC 191 timeline (JIRA backlog)
