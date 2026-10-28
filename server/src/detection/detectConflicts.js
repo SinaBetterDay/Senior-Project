@@ -52,11 +52,18 @@ function asScheduleA2(row) {
   };
 }
 
-async function loadRows(delegate) {
+async function loadRows(delegate, politicianIds) {
   if (!delegate?.findMany) return [];
-  return delegate.findMany({
-    include: { filing: { select: { politicianId: true } } },
-  });
+  const query = { include: { filing: { select: { politicianId: true } } } };
+  if (politicianIds?.length) {
+    query.where = {
+      OR: [
+        { politicianId: { in: politicianIds } },
+        { filing: { politicianId: { in: politicianIds } } },
+      ],
+    };
+  }
+  return delegate.findMany(query);
 }
 
 export async function detectConflictsForAgendaItems(ids, deps = {}) {
@@ -68,18 +75,24 @@ export async function detectConflictsForAgendaItems(ids, deps = {}) {
   const items = await client.agendaItem.findMany({
     where: { id: { in: ids } },
   });
+  const politicianIds = deps.politicianIds?.length
+    ? [...new Set(deps.politicianIds)]
+    : null;
 
   const [investments, properties, sources, positions] = await Promise.all([
-    loadRows(client.scheduleAInvestment),
-    loadRows(client.scheduleBRealEstate),
-    loadRows(client.scheduleCdeIncome),
-    loadRows(client.scheduleA2BusinessPosition),
+    loadRows(client.scheduleAInvestment, politicianIds),
+    loadRows(client.scheduleBRealEstate, politicianIds),
+    loadRows(client.scheduleCdeIncome, politicianIds),
+    loadRows(client.scheduleA2BusinessPosition, politicianIds),
   ]);
 
-  const scheduleA = (investments || []).map(asScheduleA);
-  const scheduleB = (properties || []).map(asScheduleB);
-  const scheduleCde = (sources || []).map(asScheduleCde);
-  const scheduleA2 = (positions || []).map(asScheduleA2);
+  const inScope = (row) =>
+    !politicianIds ||
+    politicianIds.includes(politicianIdFrom(row));
+  const scheduleA = (investments || []).filter(inScope).map(asScheduleA);
+  const scheduleB = (properties || []).filter(inScope).map(asScheduleB);
+  const scheduleCde = (sources || []).filter(inScope).map(asScheduleCde);
+  const scheduleA2 = (positions || []).filter(inScope).map(asScheduleA2);
 
   const matchDeps = deps.matchNamedEntity
     ? { matchNamedEntity: deps.matchNamedEntity }
@@ -103,5 +116,10 @@ export async function detectConflictsForAgendaItems(ids, deps = {}) {
   }
 
   const persisted = await persistConflicts(candidates, { prisma: client });
-  return { ...persisted, totalCandidates: candidates.length };
+  return {
+    ...persisted,
+    duplicates: persisted.duplicates ?? persisted.skipped ?? 0,
+    processedAgendaItems: items.length,
+    totalCandidates: candidates.length,
+  };
 }

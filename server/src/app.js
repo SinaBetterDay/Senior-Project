@@ -17,6 +17,7 @@ import adminReportsRouter from './routes/admin/reports.js';
 import adminSourcesRouter from './routes/admin/sources.js';
 import adminUploadRouter from './routes/admin/upload.js';
 import adminPoliticiansRouter from './routes/admin/politicians.js';
+import adminDetectionRunsRouter from './routes/admin/detectionRuns.js';
 import adminConflictsRouter from './routes/admin/conflicts.js';
 
 // AC4: manual nightly sync route
@@ -59,6 +60,7 @@ app.use('/api/search', searchRouter);
 app.use('/api/admin/sources', requireAdmin, adminSourcesRouter);
 app.use('/api/admin/reports', requireAdmin, adminReportsRouter);
 app.use('/api/admin/politicians', requireAdmin, adminPoliticiansRouter);
+app.use('/api/admin/detection-runs', requireAdmin, adminDetectionRunsRouter);
 app.use('/api/admin/conflicts', requireAdmin, adminConflictsRouter);
 
 // AC4: manual nightly sync trigger
