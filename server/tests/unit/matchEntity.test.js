@@ -3,6 +3,9 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import {
   matchNamedEntity,
   normalizeEntityName,
+  getEntityResolutionMetrics,
+  resetEntityResolutionMetrics,
+  resolveEntityWithGemini,
   scoreEntityInText,
 } from "../../src/detection/matchEntity.js";
 
@@ -26,6 +29,7 @@ describe("matchNamedEntity", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetEntityResolutionMetrics();
     process.env.GEMINI_API_KEY = "test-key";
     delete process.env.LLM_API_KEY;
   });
@@ -43,7 +47,7 @@ describe("matchNamedEntity", () => {
     }
   });
 
-  it("auto-matches at >= 0.85 without calling Gemini", async () => {
+  it("auto-matches at >= 0.90 without calling Gemini", async () => {
     const result = await matchNamedEntity(
       "Pacific Gas and Electric",
       "Authorize a services agreement with Pacific Gas and Electric for undergrounding",
@@ -53,6 +57,22 @@ describe("matchNamedEntity", () => {
     expect(result.matched).toBe(true);
     expect(result.usedGemini).toBe(false);
     expect(GoogleGenerativeAI).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-match a score below the tuned confidence threshold", async () => {
+    const resolveWithGemini = vi.fn().mockResolvedValue(false);
+
+    const result = await matchNamedEntity("Acme Builders", "agenda text", {
+      scoreEntityInText: () => 0.87,
+      resolveWithGemini,
+    });
+
+    expect(result).toMatchObject({
+      matched: false,
+      score: 0.87,
+      usedGemini: true,
+    });
+    expect(resolveWithGemini).toHaveBeenCalledWith("Acme Builders", "agenda text");
   });
 
   it("does not call Gemini and does not match below 0.7", async () => {
@@ -67,7 +87,26 @@ describe("matchNamedEntity", () => {
     expect(GoogleGenerativeAI).not.toHaveBeenCalled();
   });
 
-  it("uses Gemini in the 0.7–0.85 band", async () => {
+  it("never matches entities on the configurable exclusion list", async () => {
+    const scoreEntityInText = vi.fn(() => 1);
+
+    const result = await matchNamedEntity(
+      "CITY OF LOS ANGELES",
+      "City of Los Angeles contract award",
+      { scoreEntityInText },
+    );
+
+    expect(result).toEqual({
+      matched: false,
+      score: 0,
+      usedGemini: false,
+      excluded: true,
+    });
+    expect(scoreEntityInText).not.toHaveBeenCalled();
+    expect(GoogleGenerativeAI).not.toHaveBeenCalled();
+  });
+
+  it("uses Gemini in the 0.70–0.90 band", async () => {
     const generateContent = vi.fn().mockResolvedValue({
       response: { text: () => '{"isMatch": true}' },
     });
@@ -99,6 +138,60 @@ describe("matchNamedEntity", () => {
 
     expect(result.usedGemini).toBe(true);
     expect(result.matched).toBe(false);
+  });
+
+  it("uses a structured response and records non-sensitive resolver metrics", async () => {
+    const generateContent = vi.fn().mockResolvedValue({
+      response: { text: () => '{"isMatch": false}' },
+    });
+    GoogleGenerativeAI.mockImplementation(function FakeGemini() {
+      this.getGenerativeModel = () => ({ generateContent });
+    });
+
+    await expect(resolveEntityWithGemini("Acme", "Agenda item")).resolves.toBe(false);
+    expect(getEntityResolutionMetrics()).toMatchObject({
+      requestCount: 1,
+      fallbackCount: 0,
+    });
+  });
+
+  it("uses the deterministic fallback for malformed provider responses", async () => {
+    GoogleGenerativeAI.mockImplementation(function FakeGemini() {
+      this.getGenerativeModel = () => ({
+        generateContent: vi.fn().mockResolvedValue({ response: { text: () => 'maybe' } }),
+      });
+    });
+
+    await expect(resolveEntityWithGemini("Acme", "Agenda item")).resolves.toBe(false);
+    expect(getEntityResolutionMetrics().fallbackCount).toBe(1);
+  });
+
+  it("disables the optional provider safely when API configuration is missing", async () => {
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.LLM_API_KEY;
+
+    await expect(resolveEntityWithGemini("Acme", "Agenda item")).resolves.toBe(false);
+    expect(GoogleGenerativeAI).not.toHaveBeenCalled();
+    expect(getEntityResolutionMetrics()).toMatchObject({
+      requestCount: 0,
+      fallbackCount: 1,
+    });
+  });
+
+  it("uses the deterministic fallback when the provider times out", async () => {
+    vi.useFakeTimers();
+    GoogleGenerativeAI.mockImplementation(function FakeGemini() {
+      this.getGenerativeModel = () => ({
+        generateContent: vi.fn(() => new Promise(() => {})),
+      });
+    });
+
+    const resolution = resolveEntityWithGemini("Acme", "Agenda item");
+    await vi.advanceTimersByTimeAsync(5000);
+
+    await expect(resolution).resolves.toBe(false);
+    expect(getEntityResolutionMetrics().fallbackCount).toBe(1);
+    vi.useRealTimers();
   });
 });
 

@@ -42,11 +42,16 @@ function createPrismaDouble() {
       }),
     },
     agendaItem: {
-      findUnique: vi.fn(async ({ where }) => agendaItems.get(agendaKey(where.cityId_meetingDate_itemNumber)) ?? null),
-      upsert: vi.fn(async ({ where, create }) => {
+      findUnique: vi.fn(async ({ where }) => {
+        const row = agendaItems.get(agendaKey(where.cityId_meetingDate_itemNumber));
+        return row ? { ...row } : null;
+      }),
+      upsert: vi.fn(async ({ where, create, update }) => {
         const key = agendaKey(where.cityId_meetingDate_itemNumber);
         const existing = agendaItems.get(key);
-        const row = existing ?? { id: `agenda-${agendaItems.size + 1}`, ...create };
+        const row = existing
+          ? Object.assign(existing, update)
+          : { id: `agenda-${agendaItems.size + 1}`, ...create };
         agendaItems.set(key, row);
         return row;
       }),
@@ -88,6 +93,7 @@ describe('runApifyAgendaScrape', () => {
     itemText: 'Approve a public works contract.',
     sourceType: 'pdf',
   }]);
+  const detect = vi.fn(async () => ({ inserted: 0, skipped: 0, totalCandidates: 0 }));
 
   it('downloads, parses, persists, and logs an Apify PDF result', async () => {
     const state = createPrismaDouble();
@@ -101,6 +107,7 @@ describe('runApifyAgendaScrape', () => {
       prismaClient: state.prisma,
       scrapeAgendaPDFs,
       parsePdf,
+      detect,
       fetchImpl: vi.fn().mockImplementation(async () => pdfResponse()),
       log: vi.fn(),
     });
@@ -113,14 +120,80 @@ describe('runApifyAgendaScrape', () => {
     expect(state.syncLogs[0]).toMatchObject({ status: 'success', itemsFound: 1, itemsInserted: 1, itemsSkipped: 0, errors: null });
   });
 
-  it('does not duplicate agenda items when the same actor result is rerun', async () => {
+  it('detects conflicts for newly inserted agenda items and records the count', async () => {
     const state = createPrismaDouble();
+    const detect = vi.fn().mockResolvedValue({ inserted: 2, skipped: 1, totalCandidates: 3 });
+
+    const result = await runApifyAgendaScrape({
+      prismaClient: state.prisma,
+      scrapeAgendaPDFs: vi.fn().mockResolvedValue([{
+        pdf_url: 'https://city.test/agenda.pdf', meeting_date: '2026-10-01', city_name: 'Test City',
+      }]),
+      parsePdf,
+      detect,
+      detect,
+      fetchImpl: vi.fn().mockResolvedValue(pdfResponse()),
+      log: vi.fn(),
+    });
+
+    expect(detect).toHaveBeenCalledWith(['agenda-1'], { prisma: state.prisma });
+    expect(result).toMatchObject({
+      conflictCandidates: 3,
+      conflictsDetected: 2,
+      conflictsSkipped: 1,
+      detectionFailures: 0,
+    });
+    expect(state.syncLogs[0]).toMatchObject({
+      conflictCandidates: 3,
+      conflictsDetected: 2,
+      conflictsSkipped: 1,
+      detectionErrors: [],
+    });
+  });
+
+  it('records detection errors without marking successful agenda ingestion as failed', async () => {
+    const state = createPrismaDouble();
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const result = await runApifyAgendaScrape({
+      prismaClient: state.prisma,
+      scrapeAgendaPDFs: vi.fn().mockResolvedValue([{
+        pdf_url: 'https://city.test/agenda.pdf', meeting_date: '2026-10-01', city_name: 'Test City',
+      }]),
+      parsePdf,
+      detect: vi.fn().mockRejectedValue(new Error('detector unavailable')),
+      fetchImpl: vi.fn().mockImplementation(async () => pdfResponse()),
+      log: vi.fn(),
+    });
+
+    expect(result).toMatchObject({
+      inserted: 1,
+      errors: 0,
+      conflictCandidates: 0,
+      conflictsDetected: 0,
+      conflictsSkipped: 0,
+      detectionFailures: 1,
+      detectionErrors: [expect.objectContaining({ message: 'detector unavailable' })],
+    });
+    expect(state.syncLogs[0]).toMatchObject({
+      status: 'success',
+      itemsInserted: 1,
+      errors: null,
+      detectionErrors: [expect.objectContaining({ message: 'detector unavailable' })],
+    });
+    expect(errorLog).toHaveBeenCalled();
+    errorLog.mockRestore();
+  });
+
+  it('does not duplicate or redetect unchanged agenda items when the same actor result is rerun', async () => {
+    const state = createPrismaDouble();
+    const detect = vi.fn(async () => ({ inserted: 0, skipped: 0, totalCandidates: 0 }));
     const options = {
       prismaClient: state.prisma,
       scrapeAgendaPDFs: vi.fn().mockResolvedValue([{
         pdf_url: 'https://city.test/agenda.pdf', meeting_date: '2026-10-01', city_name: 'Test City',
       }]),
       parsePdf,
+      detect,
       fetchImpl: vi.fn().mockImplementation(async () => pdfResponse()),
       log: vi.fn(),
     };
@@ -130,6 +203,45 @@ describe('runApifyAgendaScrape', () => {
 
     expect(state.agendaItems.size).toBe(1);
     expect(rerun).toMatchObject({ inserted: 0, skipped: 1, errors: 0 });
+    expect(detect).toHaveBeenCalledTimes(1);
+  });
+
+  it('redetects an existing agenda item when parsed content materially changes', async () => {
+    const state = createPrismaDouble();
+    const parsePdf = vi.fn()
+      .mockResolvedValueOnce([{
+        cityId: 'source-1',
+        meetingDate: new Date('2026-10-01'),
+        itemNumber: '1',
+        itemText: 'Approve a public works contract.',
+        sourceType: 'pdf',
+      }])
+      .mockResolvedValueOnce([{
+        cityId: 'source-1',
+        meetingDate: new Date('2026-10-01'),
+        itemNumber: '1',
+        itemText: 'Approve Acme public works contract.',
+        sourceType: 'pdf',
+      }]);
+    const detect = vi.fn(async () => ({ inserted: 1, skipped: 0, totalCandidates: 1 }));
+    const options = {
+      prismaClient: state.prisma,
+      scrapeAgendaPDFs: vi.fn().mockResolvedValue([{
+        pdf_url: 'https://city.test/agenda.pdf', meeting_date: '2026-10-01', city_name: 'Test City',
+      }]),
+      parsePdf,
+      detect,
+      fetchImpl: vi.fn().mockImplementation(async () => pdfResponse()),
+      log: vi.fn(),
+    };
+
+    await runApifyAgendaScrape(options);
+    const updated = await runApifyAgendaScrape(options);
+
+    expect(updated).toMatchObject({ inserted: 0, skipped: 1, conflictsDetected: 1, errors: 0 });
+    expect(detect).toHaveBeenNthCalledWith(1, ['agenda-1'], { prisma: state.prisma });
+    expect(detect).toHaveBeenNthCalledWith(2, ['agenda-1'], { prisma: state.prisma });
+    expect(state.agendaItems.size).toBe(1);
   });
 
   it('skips one failed PDF, records its error, and continues with the next PDF', async () => {
@@ -145,6 +257,7 @@ describe('runApifyAgendaScrape', () => {
         { pdf_url: 'https://city.test/agenda.pdf', meeting_date: '2026-10-01', city_name: 'Test City' },
       ]),
       parsePdf,
+      detect,
       fetchImpl,
       log: vi.fn(),
     });

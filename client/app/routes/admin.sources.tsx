@@ -1,8 +1,11 @@
+import RequestError from "../components/RequestError";
+import { safeMessage } from "../lib/request";
 import { useEffect, useState, type FormEvent } from "react";
 import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { AdminGuard, AdminNav } from "../adminComponents";
 import { adminFetch } from "../adminAuth";
+import CityAgendaDiscovery from "../components/CityAgendaDiscovery";
 
 type Source = {
   id: string;
@@ -10,10 +13,12 @@ type Source = {
   sourceType: "legistar" | "apify" | "pdf" | "Legistar" | "Apify" | "PDF";
   legistarBaseUrl?: string | null;
   apifyActorId?: string | null;
+  startUrl?: string | null;
   lastSyncTime: string | null;
   totalAgendaItems: number;
   lastError: string | null;
   status: "ready" | "running" | "success" | "failed" | "disabled";
+  enabled: boolean;
 };
 
 function formatDate(date: string | null) {
@@ -33,6 +38,7 @@ function statusClass(status: Source["status"]) {
 }
 
 export default function AdminSourcesPage() {
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
@@ -42,11 +48,13 @@ export default function AdminSourcesPage() {
   const [editingSourceId, setEditingSourceId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
   const [cityName, setCityName] = useState("");
   const [sourceType, setSourceType] = useState<"Legistar" | "Apify">("Legistar");
   const [legistarBaseUrl, setLegistarBaseUrl] = useState("");
   const [apifyActorId, setApifyActorId] = useState("");
+  const [startUrl, setStartUrl] = useState("");
 
   async function loadSources() {
     setLoading(true);
@@ -81,6 +89,7 @@ export default function AdminSourcesPage() {
   }, []);
 
   async function handleSync(id: string) {
+    setSyncError(null);
     setSyncingId(id);
     try {
       const res = await adminFetch(`/api/admin/sources/${id}/sync`, {
@@ -116,7 +125,7 @@ export default function AdminSourcesPage() {
       throw new Error("Sync is taking longer than expected. Refresh the source list to check its status.");
     } catch (err) {
       console.error("Sync failed", err);
-      toast.error(err instanceof Error ? err.message : "Sync failed");
+      setSyncError(safeMessage(err, "Sync failed."));
       await loadSources();
     } finally {
       setSyncingId(null);
@@ -129,6 +138,7 @@ export default function AdminSourcesPage() {
     setSourceType("Legistar");
     setLegistarBaseUrl("");
     setApifyActorId("");
+    setStartUrl("");
     setAddError(null);
   }
 
@@ -138,6 +148,7 @@ export default function AdminSourcesPage() {
     setSourceType(source.sourceType.toLowerCase() === "apify" ? "Apify" : "Legistar");
     setLegistarBaseUrl(source.legistarBaseUrl ?? "");
     setApifyActorId(source.apifyActorId ?? "");
+    setStartUrl(source.startUrl ?? "");
     setAddError(null);
     setShowAddForm(true);
   }
@@ -156,7 +167,7 @@ export default function AdminSourcesPage() {
         body: JSON.stringify({
           cityName,
           sourceType,
-          ...(sourceType === "Legistar" ? { legistarBaseUrl } : { apifyActorId }),
+          ...(sourceType === "Legistar" ? { legistarBaseUrl } : { apifyActorId, startUrl }),
         }),
       });
 
@@ -193,7 +204,8 @@ export default function AdminSourcesPage() {
         throw new Error(body?.error ?? body?.message ?? `Failed to delete source (${res.status})`);
       }
 
-      toast.success("Source deleted; ingested agenda items were kept");
+      const payload = await res.json();
+      toast.success(payload.message ?? "Source deleted; ingested agenda items were kept");
       await loadSources();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to delete source.");
@@ -202,22 +214,43 @@ export default function AdminSourcesPage() {
     }
   }
 
+  async function handleToggleSource(source: Source) {
+    setTogglingId(source.id);
+    try {
+      const res = await adminFetch(`/api/admin/sources/${source.id}/enabled`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !source.enabled }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? `Failed to ${source.enabled ? "disable" : "enable"} source (${res.status})`);
+      }
+      toast.success(source.enabled ? "Source disabled" : "Source enabled");
+      await loadSources();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update source.");
+    } finally {
+      setTogglingId(null);
+    }
+  }
+
   return (
     <AdminGuard>
-      <div className="min-h-screen bg-[#ececec] text-[#1f1f1f]">
+      <div className="min-h-screen bg-slate-50 text-slate-950">
         <AdminNav title="Sources dashboard" />
 
       <main className="px-4 py-10 md:px-10">
-        <div className="mx-auto max-w-6xl rounded-[2rem] bg-[#d9e3fb] px-6 py-8 shadow-sm md:px-10">
-          <div className="mb-8 text-center">
-            <h2 className="text-3xl font-semibold text-black md:text-4xl">
-              Admin Sources Dashboard
+        <div className="surface mx-auto max-w-6xl px-6 py-8 md:px-10">
+          <div className="mb-8">
+            <p className="eyebrow">Agenda ingestion</p>
+            <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">
+              Data sources
             </h2>
-            <div className="mx-auto mt-2 h-1 w-28 rounded bg-[#3f4c97]" />
-            <p className="mt-4 text-sm text-gray-700 md:text-base">
+            <p className="mt-3 text-sm text-slate-600 md:text-base">
               View ingestion source status and trigger manual syncs.
             </p>
-            <p className="mt-2 text-xs text-gray-600">
+            <p className="mt-2 text-xs text-slate-500">
               Last refreshed: {lastRefreshed.toLocaleTimeString()}
             </p>
           </div>
@@ -235,7 +268,7 @@ export default function AdminSourcesPage() {
                 }
               }}
               aria-expanded={showAddForm}
-              className="inline-flex items-center gap-2 rounded-md bg-[#3f4c97] px-4 py-2 font-semibold text-white transition hover:bg-[#334085]"
+              className="button-primary"
             >
               {showAddForm ? <X size={18} aria-hidden="true" /> : <Plus size={18} aria-hidden="true" />}
               {showAddForm ? "Close" : "Add source"}
@@ -243,7 +276,7 @@ export default function AdminSourcesPage() {
           </div>
 
           {showAddForm && (
-            <form onSubmit={handleAddSource} className="mb-8 border-y border-[#8c97b8] bg-white px-5 py-6">
+              <form onSubmit={handleAddSource} className="surface mb-8 bg-slate-50 px-5 py-6">
               <h3 className="mb-5 text-lg font-semibold text-gray-900">{editingSourceId ? "Edit ingestion source" : "New ingestion source"}</h3>
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
@@ -255,7 +288,7 @@ export default function AdminSourcesPage() {
                     onChange={(event) => setCityName(event.target.value)}
                     autoComplete="address-level2"
                     required
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 outline-none focus:border-[#3f4c97] focus:ring-2 focus:ring-[#3f4c97]/20"
+                    className="field"
                   />
                 </div>
                 <div>
@@ -265,7 +298,7 @@ export default function AdminSourcesPage() {
                     name="sourceType"
                     value={sourceType}
                     onChange={(event) => setSourceType(event.target.value as "Legistar" | "Apify")}
-                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 outline-none focus:border-[#3f4c97] focus:ring-2 focus:ring-[#3f4c97]/20"
+                    className="field"
                   >
                     <option value="Legistar">Legistar</option>
                     <option value="Apify">Apify</option>
@@ -282,30 +315,45 @@ export default function AdminSourcesPage() {
                       onChange={(event) => setLegistarBaseUrl(event.target.value)}
                       placeholder="https://webapi.legistar.com/v1/sacramento"
                       required
-                      className="w-full rounded-md border border-gray-300 px-3 py-2 outline-none focus:border-[#3f4c97] focus:ring-2 focus:ring-[#3f4c97]/20"
+                      className="field"
                     />
                   </div>
                 ) : (
-                  <div className="md:col-span-2">
-                    <label htmlFor="source-apify-actor" className="mb-1 block text-sm font-medium text-gray-800">Apify actor ID</label>
-                    <input
-                      id="source-apify-actor"
-                      name="apifyActorId"
-                      value={apifyActorId}
-                      onChange={(event) => setApifyActorId(event.target.value)}
-                      placeholder="username/actor-name"
-                      required
-                      className="w-full rounded-md border border-gray-300 px-3 py-2 outline-none focus:border-[#3f4c97] focus:ring-2 focus:ring-[#3f4c97]/20"
-                    />
+                  <div className="grid gap-4 md:col-span-2 md:grid-cols-2">
+                    <div>
+                      <label htmlFor="source-apify-actor" className="mb-1 block text-sm font-medium text-gray-800">Apify actor ID</label>
+                      <input
+                        id="source-apify-actor"
+                        name="apifyActorId"
+                        value={apifyActorId}
+                        onChange={(event) => setApifyActorId(event.target.value)}
+                        placeholder="username/actor-name"
+                        required
+                        className="field"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="source-start-url" className="mb-1 block text-sm font-medium text-gray-800">Agenda archive URL</label>
+                      <input
+                        id="source-start-url"
+                        name="startUrl"
+                        type="url"
+                        value={startUrl}
+                        onChange={(event) => setStartUrl(event.target.value)}
+                        placeholder="https://city.gov/council-agendas"
+                        required
+                        className="field"
+                      />
+                    </div>
                   </div>
                 )}
               </div>
-              {addError && <p role="alert" className="mt-4 text-sm font-medium text-red-700">{addError}</p>}
+              {addError && <p role="alert" className="mt-4 text-sm font-medium text-red-700">{safeMessage(addError)}</p>}
               <div className="mt-5 flex justify-end">
                 <button
                   type="submit"
                   disabled={isSaving}
-                  className="rounded-md bg-[#3f4c97] px-5 py-2 font-semibold text-white transition hover:bg-[#334085] disabled:opacity-50"
+                  className="button-primary"
                 >
                   {isSaving ? "Saving..." : editingSourceId ? "Save changes" : "Save source"}
                 </button>
@@ -313,21 +361,22 @@ export default function AdminSourcesPage() {
             </form>
           )}
 
+          <CityAgendaDiscovery />
+          {syncError && <RequestError message={syncError} onRetry={loadSources} />}
+
           {loadError && (
-            <div className="mb-6 rounded-xl bg-red-100 px-4 py-3 text-sm font-medium text-red-800">
-              {loadError}
-            </div>
+            <RequestError message={loadError} onRetry={loadSources} />
           )}
 
           {loading ? (
-            <div className="rounded-2xl bg-white/70 px-6 py-10 text-center text-base text-gray-700 shadow-sm">
+            <div className="surface px-6 py-10 text-center text-base text-slate-600">
               Loading sources...
             </div>
-          ) : (
-            <div className="overflow-hidden rounded-2xl border border-[#8c97b8] bg-white shadow-sm">
+          ) : !loadError && (
+            <div className="surface overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm text-gray-900">
-                  <thead className="bg-[#3f4c97] text-white">
+                  <thead className="bg-slate-100 text-slate-700">
                     <tr>
                       <th className="px-4 py-4 text-left font-semibold">City</th>
                       <th className="px-4 py-4 text-left font-semibold">Source Type</th>
@@ -360,7 +409,7 @@ export default function AdminSourcesPage() {
                           </td>
                           <td className="px-4 py-4">
                             {source.lastError ? (
-                              <span className="text-red-700">{source.lastError}</span>
+                              <span className="text-red-700">{safeMessage(source.lastError)}</span>
                             ) : (
                               "—"
                             )}
@@ -379,10 +428,19 @@ export default function AdminSourcesPage() {
                               <button
                                 type="button"
                                 onClick={() => handleSync(source.id)}
-                                disabled={syncingId === source.id}
-                                className="rounded-md bg-[#3f4c97] px-3 py-2 font-semibold text-white transition hover:bg-[#334085] disabled:opacity-50"
+                                disabled={syncingId === source.id || !source.enabled}
+                                className="button-primary px-3 py-2"
                               >
                                 {syncingId === source.id ? "Syncing..." : "Sync now"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleSource(source)}
+                                disabled={togglingId === source.id}
+                                aria-label={`${source.enabled ? "Disable" : "Enable"} ${source.cityName} source`}
+                                className="rounded-md border border-gray-300 px-3 py-2 text-gray-700 transition hover:bg-gray-100 disabled:opacity-50"
+                              >
+                                {source.enabled ? "Disable" : "Enable"}
                               </button>
                               <button
                                 type="button"

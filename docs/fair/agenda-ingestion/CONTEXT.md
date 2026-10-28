@@ -14,7 +14,9 @@ Ingest **city council agendas** for cross-reference with Form 700 data.
 
 - City-specific quirks (URLs, selectors, Legistar endpoints) should be documented next to the code that uses them.
 - Normalize to a **common internal shape** before entity matching (see `../entity-resolution/CONTEXT.md`).
-- `server/src/jobs/runApifyAgendaScrape.js` owns Apify → PDF download → parse → Prisma upsert. Downloads time out after 30 seconds, are limited to 20 MB, and retry safely using `(city_id, meeting_date, item_number)`.
+- `server/src/jobs/runApifyAgendaScrape.js` owns Apify → PDF download → parse → Prisma upsert → conflict detection. Downloads time out after 30 seconds, are limited to 20 MB, and retry safely using `(city_id, meeting_date, item_number)`.
+- Apify rows retain the original document in `agenda_items.source_url`; `item_text` contains parsed agenda text used for matching. Manual source sync follows the same parse/detect contract.
+- Detection failures are recorded separately from ingestion errors in `sync_logs`, including the affected agenda item IDs. An admin can retry detection without rerunning ingestion with `POST /api/admin/sources/:id/sync/:syncLogId/retry-detection`; unresolved IDs remain available for another retry.
 
 ## Related docs
 

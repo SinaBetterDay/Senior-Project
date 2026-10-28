@@ -1,20 +1,18 @@
-# Workspace — Cron + nightly sync
+# Workspace — cron and synchronization
 
-## Role
+## Implemented paths
 
-Run scheduled synchronization (agenda pulls, reprocessing, or digest triggers).
+- `server/src/index.js` invokes `scheduleCronJobs()`.
+- `server/src/jobs/scheduleCronJobs.js` schedules nightly Legistar and weekly Apify jobs when `CRON_ENABLED` is true (default true in code).
+- `server/src/jobs/runNightlyLegistarSync.js` and `runApifyAgendaScrape.js` are direct CLI entry points.
+- `server/src/routes/adminSync.js` exposes the authenticated manual Legistar trigger.
 
-## Constraints
+Set `CRON_ENABLED=false` on a web host when another scheduler owns execution, otherwise multiple instances can duplicate work. Jobs must remain idempotent and retry-safe.
 
-- Production schedules run in GitHub Actions (`scheduled-legistar-sync.yml` and `scheduled-apify-agendas.yml`) so each run has an execution record and does not depend on an API instance staying alive.
-- Keep `CRON_ENABLED=false` on Railway to avoid duplicate work. `node-cron` remains available only when intentionally enabled for local or alternate-host scheduling.
-- **Do not** add **BullMQ**, **Redis**, or similar queue infra for this project unless the team explicitly changes direction.
+## Current deployment status
 
-## Boundaries
+`.github/workflows/scheduled-legistar-sync.yml` and `scheduled-apify-agendas.yml` are currently disabled placeholder files. GitHub Actions scheduling is a target design, not active checked-in behavior. Active CI is `.github/workflows/ci.yml`.
 
-- Keep jobs idempotent and failure-aware in **server** code. GitHub schedules use UTC and may be delayed, so workflows must be safe to retry and are protected from overlapping runs.
+Do not use `server/src/queues/syncQueue.js` or `server/src/workers/syncWorker.js` as architecture references; the queue file is empty and the worker is not wired into startup. Do not introduce Redis/BullMQ without explicit approval.
 
-## Related docs
-
-- `../agenda-ingestion/CONTEXT.md`, `../admin-notifications/CONTEXT.md`
-- `server/CONTEXT.md`
+Related: `../agenda-ingestion/CONTEXT.md`, `server/CONTEXT.md`.

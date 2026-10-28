@@ -1,32 +1,36 @@
 import express from "express";
 import { prisma } from "../lib/prisma.js";
 import { normalizeEntityName } from "../utils/entityNorm.js";
+import {
+  conflictInclude,
+  dashboardRow,
+  parseExportFilters,
+  matchesFilters,
+  csvHeaders,
+  csvLine,
+  conflictCsvLine,
+} from "../utils/conflictExport.js";
 
 const router = express.Router();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 router.get("/", async (_req, res, next) => {
   try {
+    const requestedLimit = Number.parseInt(String(_req.query.limit ?? ""), 10);
+    const take = Number.isFinite(requestedLimit)
+      ? Math.max(1, Math.min(requestedLimit, 100))
+      : undefined;
     const conflicts = await prisma.conflict.findMany({
-      include: {
-        politician: { select: { fullName: true, jurisdiction: { select: { name: true } } } },
-        agendaItem: { select: { title: true, description: true, itemText: true, cityName: true } },
-      },
-      orderBy: { detectedAt: "desc" },
-      take: 1000,
+      include: conflictInclude,
+      orderBy: [
+        { detectedAt: "desc" },
+        { id: "asc" },
+      ],
+      ...(take ? { take } : {}),
     });
 
     res.status(200).json({
-      data: conflicts.map((conflict) => ({
-        id: conflict.id,
-        politicianName: conflict.politician.fullName,
-        city: conflict.agendaItem.cityName ?? conflict.politician.jurisdiction?.name ?? "Unknown",
-        conflictType: conflict.conflictType,
-        severity: conflict.severity,
-        agendaItemSummary:
-          conflict.agendaItem.title ?? conflict.agendaItem.description ?? conflict.agendaItem.itemText ?? "Agenda item unavailable",
-        detectedAt: conflict.detectedAt,
-      })),
+      data: conflicts.map(dashboardRow),
     });
   } catch (error) {
     next(error);
@@ -130,6 +134,73 @@ async function findScheduleEntry(conflict) {
       return null;
   }
 }
+
+router.get("/export", async (req, res, next) => {
+  let filters;
+
+  try {
+    filters = parseExportFilters(req.query);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+
+  try {
+    const batchSize = 250;
+    let cursor;
+
+    const getBatch = () => prisma.conflict.findMany({
+      include: conflictInclude,
+      orderBy: { id: "asc" },
+      take: batchSize,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+
+    // Check the database before starting the file response.
+    let batch = await getBatch();
+
+    const date = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="fair-conflicts-${date}.csv"`,
+    );
+    res.setHeader("Cache-Control", "no-store");
+
+    // Wait for each write so large exports don't fill the output buffer.
+    const write = (text) => new Promise((resolve, reject) => {
+      res.write(text, (error) => {
+        if (error) reject(error);
+        else resolve();
+      });
+    });
+
+    await write(csvLine(csvHeaders));
+
+    while (batch.length > 0) {
+      for (const conflict of batch) {
+        if (res.destroyed) return;
+
+        const row = dashboardRow(conflict);
+        if (matchesFilters(row, filters)) {
+          await write(conflictCsvLine(conflict, row));
+        }
+      }
+
+      if (batch.length < batchSize || res.destroyed) break;
+
+      cursor = batch[batch.length - 1].id;
+      batch = await getBatch();
+    }
+
+    res.end();
+  } catch (error) {
+    if (res.headersSent) {
+      res.destroy(error);
+    } else {
+      next(error);
+    }
+  }
+});
 
 router.get("/:id", async (req, res, next) => {
   if (!UUID.test(req.params.id)) {

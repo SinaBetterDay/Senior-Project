@@ -5,13 +5,16 @@
   "main": "src/index.js",
   "type": "module",
   "scripts": {
-    "start": "node src/index.js",
+    "start": "prisma generate && node src/index.js",
     "dev": "node --watch src/index.js",
     "sync:legistar": "node src/jobs/runNightlyLegistarSync.js",
     "run:apify-agendas": "node src/jobs/runApifyAgendaScrape.js",
     "test": "vitest run tests/unit",
+    "test:watch": "vitest tests/unit",
+    "test:coverage": "vitest run --coverage tests/unit",
     "benchmark:search": "node scripts/benchmark-search.mjs",
     "test:integration": "vitest run tests/integration",
+    "test:functional": "vitest run tests/functional",
     "test:storage": "node scripts/test-form700-storage.mjs",
     "smoke:legistar-api": "node scripts/legistar-api-smoke.mjs"
   },
@@ -31,9 +34,11 @@
     "node-cron": "^4.2.1",
     "pdf-parse": "^1.1.1",
     "postgres": "^3.4.9",
+    "puppeteer": "^25.13.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "4.1.11",
     "prisma": "^6.12.0",
     "supertest": "^7.2.2",
     "vitest": "^4.1.5"

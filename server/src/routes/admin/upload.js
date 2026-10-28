@@ -11,7 +11,7 @@
  * queued only after both database and archive writes succeed.
  *
  * Responses
- *   200 { filing_id, corrected, detection_run_id, detection_run_status, ... }
+ *   200 { filing_id, politician_id, schedules_parsed: { A, B, CDE, A2 }, archived_path, detection }
  *   400 bad/missing file, wrong MIME, unreadable XLSX, unrecognised sheets,
  *       filer/filing year could not be determined
  *   409 filing already exists for this politician + filing year unless
@@ -32,6 +32,7 @@ import { parseScheduleB } from "../../parsers/scheduleB.js";
 import { parseScheduleCDE } from "../../parsers/scheduleCDE.js";
 import { findOrCreatePolitician } from "../../utils/findOrCreatePolitician.js";
 import { queueDetectionRun } from "../../detection/detectionRuns.js";
+import { redetectDisclosureAgendaItems } from "../../detection/redetectDisclosure.js";
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
 
@@ -323,29 +324,44 @@ router.post("/form700", receiveFile, async (req, res, next) => {
     }
 
     // 7. Archive the raw workbook (after commit) ------------------------------
-    let archivedPath = replacementArchivePath;
-    if (!existing) {
+    let archivedPath;
+    try {
+      archivedPath = await archiveWorkbook(req.file.buffer, req.file.originalname, {
+        filingId,
+        politicianId,
+      });
+      await prisma.form700Filing.update({
+        where: { id: filingId },
+        data: { archivedPath, storagePath: archivedPath },
+      });
+    } catch (error) {
+      // Roll back the committed filing (schedule rows cascade) so a failed
+      // archive never leaves a half-ingested filing behind.
+      if (archivedPath) {
+        try {
+          await deleteWorkbook(archivedPath);
+        } catch (cleanupError) {
+          console.error("[upload] failed to delete archived workbook after archive error:", {
+            filingId,
+            politicianId,
+            archivedPath,
+            error: cleanupError?.message ?? cleanupError,
+          });
+        }
+      }
       try {
-        archivedPath = await archiveWorkbook(req.file.buffer, req.file.originalname, {
+        await prisma.form700Filing.delete({ where: { id: filingId } });
+      } catch (cleanupError) {
+        console.error("[upload] failed to delete filing after archive error:", {
           filingId,
           politicianId,
+          error: cleanupError?.message ?? cleanupError,
         });
-        await prisma.form700Filing.update({
-          where: { id: filingId },
-          data: { archivedPath, storagePath: archivedPath },
-        });
-      } catch (error) {
-        // Roll back the committed filing (schedule rows cascade) so a failed
-        // archive never leaves a half-ingested filing behind.
-        try {
-          await prisma.form700Filing.delete({ where: { id: filingId } });
-        } catch (cleanupError) {
-          console.error("[upload] failed to delete filing after archive error:", cleanupError);
-        }
-        const err = new Error(`Failed to archive workbook: ${error?.message ?? error}`);
-        err.statusCode = 500;
-        return next(err);
       }
+      const err = new Error("Failed to archive workbook.");
+      err.statusCode = 500;
+      err.publicMessage = "Failed to archive workbook. Contact an administrator to check storage before uploading again.";
+      return next(err);
     }
 
     queueDetectionRun(detectionRunId);
@@ -353,6 +369,11 @@ router.post("/form700", receiveFile, async (req, res, next) => {
     const politician = await prisma.politician.findUnique({
       where: { id: politicianId },
       select: { fullName: true, slug: true },
+    });
+    const detection = await redetectDisclosureAgendaItems({
+      politicianId,
+      filingYear,
+      prisma,
     });
 
     return res.status(200).json({
@@ -366,6 +387,14 @@ router.post("/form700", receiveFile, async (req, res, next) => {
         : null,
       schedules_parsed: schedulesParsed,
       archived_path: archivedPath,
+      detection: {
+        agenda_items_processed: detection.agendaItemsProcessed,
+        conflict_candidates: detection.conflictCandidates,
+        conflicts_detected: detection.conflictsDetected,
+        conflicts_skipped: detection.conflictsSkipped,
+        failures: detection.detectionErrors,
+        skipped_reason: detection.skippedReason,
+      },
     });
   } catch (error) {
     return next(error);

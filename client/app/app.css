@@ -5,11 +5,104 @@
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
-html,
-body {
-  @apply bg-white dark:bg-gray-950;
+@layer base {
+  html {
+    @apply scroll-smooth bg-slate-50;
+  }
 
-  @media (prefers-color-scheme: dark) {
-    color-scheme: dark;
+  body {
+    @apply m-0 min-h-screen bg-slate-50 font-sans text-slate-950 antialiased;
+    overflow-wrap: anywhere;
+  }
+
+  input, select, textarea {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  button, input:not([type="checkbox"]), select {
+    min-height: 44px;
+  }
+
+  button {
+    touch-action: manipulation;
+  }
+
+  @media (max-width: 767px) {
+    input, select, textarea { font-size: 16px; }
+  }
+
+  main, section, article, aside {
+    min-width: 0;
+  }
+
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2;
+  }
+
+  ::selection {
+    @apply bg-blue-100 text-blue-950;
+  }
+}
+
+@layer components {
+  .site-container,
+  .page-shell {
+    @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+  }
+
+  .page-shell {
+    @apply py-10 lg:py-14;
+  }
+
+  @media (min-width: 1536px) {
+    .site-container,
+    .page-shell {
+      max-width: 1600px;
+    }
+  }
+
+  .surface {
+    @apply rounded-2xl border border-slate-200 bg-white;
+  }
+
+  .eyebrow {
+    @apply text-xs font-bold uppercase tracking-[0.16em] text-blue-700;
+  }
+
+  .button-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .button-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .field {
+    @apply w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-950 transition placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100;
+  }
+
+  .conflicts-table {
+    @apply w-full table-fixed text-left text-sm;
+  }
+
+  .conflicts-table th, .conflicts-table td {
+    @apply px-2 py-4 align-top sm:px-4;
+  }
+
+  .conflicts-table th {
+    @apply bg-slate-100 font-semibold text-slate-700;
+  }
+
+  .conflicts-table td {
+    @apply border-t border-slate-200;
+  }
+
+  .data-label {
+    @apply text-xs font-semibold uppercase tracking-wide text-slate-500;
   }
 }

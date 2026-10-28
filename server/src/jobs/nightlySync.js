@@ -1,6 +1,7 @@
 import postgres from 'postgres';
 import { fetchLegistarAgendaItemsForDataSource } from '../ingestion/legistar.js';
 import { detectConflictsForAgendaItems } from '../detection/detectConflicts.js';
+import { detectAgendaConflictsSafely } from '../detection/detectAgendaConflictsSafely.js';
 import { prisma } from '../lib/prisma.js';
 
 const DEFAULT_LOOKBACK_DAYS = 30;
@@ -174,12 +175,14 @@ async function runLegistarSyncForCityWithSql(sql, dataSource, agendaItemColumns,
   const inserted = insertedAgendaItemIds.length;
   const skipped = rows.length - inserted;
   const detect = options.detectConflictsForAgendaItems ?? detectConflictsForAgendaItems;
-  const detection = inserted > 0
-    ? await detect(insertedAgendaItemIds, options.detectionDependencies)
-    : { inserted: 0, skipped: 0, totalCandidates: 0 };
+  const detection = await detectAgendaConflictsSafely(
+    insertedAgendaItemIds,
+    detect,
+    options.detectionDependencies,
+  );
 
   console.log(
-    `[cron][legistar] city="${cityName}" items_found=${rows.length} inserted=${inserted} skipped=${skipped} conflicts=${detection.inserted}`,
+    `[cron][legistar] city="${cityName}" items_found=${rows.length} inserted=${inserted} skipped=${skipped} conflict_candidates=${detection.conflictCandidates} conflicts_inserted=${detection.conflictsDetected} conflicts_skipped=${detection.conflictsSkipped} detection_failures=${detection.detectionErrors.length}`,
   );
 
   return {
@@ -192,8 +195,7 @@ async function runLegistarSyncForCityWithSql(sql, dataSource, agendaItemColumns,
     skipped,
     itemsSkipped: skipped,
     insertedAgendaItemIds,
-    conflictsDetected: detection.inserted,
-    conflictsSkipped: detection.skipped,
+    ...detection,
   };
 }
 
@@ -244,6 +246,15 @@ export async function runNightlyLegistarSync(options = {}) {
       loadLegistarDataSources(sql),
       loadAgendaItemColumns(sql),
     ]);
+    const requestedCity = typeof options.city === 'string'
+      ? options.city.trim().toLowerCase()
+      : null;
+
+    const sourcesToProcess = requestedCity
+      ? dataSources.filter(
+        (source) => getCityName(source).trim().toLowerCase() === requestedCity,
+      )
+      : dataSources;
 
     const totals = {
       citiesProcessed: 0,
@@ -251,12 +262,15 @@ export async function runNightlyLegistarSync(options = {}) {
       inserted: 0,
       skipped: 0,
       conflictsDetected: 0,
+      conflictCandidates: 0,
+      conflictsSkipped: 0,
+      detectionFailures: 0,
       failures: 0,
     };
 
     const prismaClient = options.prisma ?? prisma;
 
-    for (const source of dataSources) {
+    for (const source of sourcesToProcess) {
       const startedAt = new Date();
       let syncLog = null;
       try {
@@ -278,6 +292,9 @@ export async function runNightlyLegistarSync(options = {}) {
         totals.inserted += result.inserted;
         totals.skipped += result.skipped;
         totals.conflictsDetected += result.conflictsDetected;
+        totals.conflictCandidates += result.conflictCandidates;
+        totals.conflictsSkipped += result.conflictsSkipped;
+        totals.detectionFailures += result.detectionErrors.length;
 
         if (prismaClient?.$transaction) {
           await prismaClient.$transaction([
@@ -291,7 +308,10 @@ export async function runNightlyLegistarSync(options = {}) {
                       itemsFound: result.itemsFound,
                       itemsInserted: result.itemsInserted,
                       itemsSkipped: result.itemsSkipped,
+                      conflictCandidates: result.conflictCandidates,
                       conflictsDetected: result.conflictsDetected,
+                      conflictsSkipped: result.conflictsSkipped,
+                      detectionErrors: result.detectionErrors,
                       errors: null,
                     },
                   }),
@@ -339,7 +359,7 @@ export async function runNightlyLegistarSync(options = {}) {
     }
 
     console.log(
-      `[cron][legistar] complete cities=${totals.citiesProcessed} failures=${totals.failures} items_found=${totals.itemsFound} inserted=${totals.inserted} skipped=${totals.skipped} conflicts=${totals.conflictsDetected}`,
+      `[cron][legistar] complete cities=${totals.citiesProcessed} failures=${totals.failures} items_found=${totals.itemsFound} inserted=${totals.inserted} skipped=${totals.skipped} conflict_candidates=${totals.conflictCandidates} conflicts_inserted=${totals.conflictsDetected} conflicts_skipped=${totals.conflictsSkipped} detection_failures=${totals.detectionFailures}`,
     );
 
     return totals;
