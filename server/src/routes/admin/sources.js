@@ -373,8 +373,23 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     // Agenda items are not deleted with a source; sync-log references use SET NULL.
+    const source = await prisma.dataSource.findUnique({ where: { id: req.params.id } });
+    if (!source) return res.status(404).json({ error: 'Source not found.' });
+    const preservedAgendaItems = await prisma.agendaItem.count({
+      where: {
+        OR: [
+          { cityId: source.id },
+          { cityName: { equals: source.cityName, mode: 'insensitive' } },
+        ],
+      },
+    });
     await prisma.dataSource.delete({ where: { id: req.params.id } });
-    return res.status(204).end();
+    return res.json({
+      deleted: true,
+      sourceId: source.id,
+      preservedAgendaItems,
+      message: `Source deleted. ${preservedAgendaItems} ingested agenda item(s) were preserved.`,
+    });
   } catch (error) {
     if (error.code === 'P2025') return res.status(404).json({ error: 'Source not found.' });
     console.error('[admin/sources] failed to delete source', error);
@@ -382,10 +397,28 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+router.patch('/:id/enabled', async (req, res) => {
+  try {
+    if (typeof req.body?.enabled !== 'boolean') {
+      return res.status(400).json({ error: 'enabled must be a boolean.' });
+    }
+    const source = await prisma.dataSource.update({
+      where: { id: req.params.id },
+      data: { enabled: req.body.enabled },
+    });
+    return res.json({ id: source.id, enabled: source.enabled });
+  } catch (error) {
+    if (error.code === 'P2025') return res.status(404).json({ error: 'Source not found.' });
+    console.error('[admin/sources] failed to update source state', error);
+    return res.status(500).json({ error: 'Failed to update source state.' });
+  }
+});
+
 router.post('/:id/sync', async (req, res) => {
   try {
     const source = await prisma.dataSource.findUnique({ where: { id: req.params.id } });
     if (!source) return res.status(404).json({ error: 'Source not found.' });
+    if (source.enabled === false) return res.status(409).json({ error: 'Enable this source before starting a sync.' });
 
     const syncLog = await prisma.syncLog.create({
       data: { dataSourceId: source.id, sourceType: source.sourceType.toLowerCase(), status: 'running' },

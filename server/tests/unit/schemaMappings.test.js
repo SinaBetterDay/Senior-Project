@@ -102,7 +102,8 @@ describe('Prisma mappings used by ingestion', () => {
       'legistarItemPayload',
     ]));
 
-    expect(apifySync).toContain('prismaClient.agendaItem.upsert');
+    expect(apifySync).toContain('upsertAgendaItems(');
+    expect(apifySync).toContain('prismaClient,');
     expect(apifySync).toContain('prismaClient.syncLog.create');
     expect(apifySync).toContain('prismaClient.dataSource.create');
     expect([...models.get('DataSource').fields.keys()]).toEqual(expect.arrayContaining([

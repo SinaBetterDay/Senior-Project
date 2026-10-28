@@ -39,6 +39,7 @@ export function conflictUniqueKey(candidate) {
 export async function persistConflicts(candidates, deps = {}) {
   const rows = [];
   const seen = new Set();
+  let duplicates = 0;
 
   for (const candidate of candidates || []) {
     const record = toConflictRecord(candidate);
@@ -53,13 +54,16 @@ export async function persistConflicts(candidates, deps = {}) {
       continue;
     }
     const key = conflictUniqueKey(record);
-    if (seen.has(key)) continue;
+    if (seen.has(key)) {
+      duplicates += 1;
+      continue;
+    }
     seen.add(key);
     rows.push(record);
   }
 
   if (rows.length === 0) {
-    return { inserted: 0, skipped: 0 };
+    return { inserted: 0, skipped: duplicates, duplicates };
   }
 
   const client = await getPrisma(deps.prisma);
@@ -68,5 +72,6 @@ export async function persistConflicts(candidates, deps = {}) {
     skipDuplicates: true,
   });
   const inserted = result?.count ?? 0;
-  return { inserted, skipped: rows.length - inserted };
+  duplicates += rows.length - inserted;
+  return { inserted, skipped: duplicates, duplicates };
 }

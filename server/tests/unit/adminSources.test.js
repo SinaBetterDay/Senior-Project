@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../src/lib/prisma.js', () => ({
   prisma: {
     dataSource: { create: vi.fn(), update: vi.fn(), delete: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() },
-    agendaItem: { deleteMany: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn(), createMany: vi.fn() },
+    agendaItem: { count: vi.fn(), deleteMany: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn(), createMany: vi.fn() },
     syncLog: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn() },
     $transaction: vi.fn((operations) => Promise.all(operations)),
   },
@@ -63,7 +63,9 @@ beforeEach(() => {
     cityName: 'Sacramento',
     sourceType: 'legistar',
     legistarBaseUrl: 'https://webapi.legistar.com/v1/sacramento',
+    enabled: true,
   });
+  prisma.agendaItem.count.mockResolvedValue(3);
   getMeetings.mockResolvedValue([{ EventId: 42, EventDate: '2026-10-01', EventBodyName: 'City Council' }]);
   getAgendaItems.mockResolvedValue([{
     EventItemId: 9001,
@@ -239,9 +241,26 @@ describe('source edit and delete', () => {
   it('deletes only the source configuration and leaves ingested agenda items untouched', async () => {
     const response = await request(app).delete('/api/admin/sources/source-1');
 
-    expect(response.status).toBe(204);
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ deleted: true, sourceId: 'source-1', preservedAgendaItems: 3 });
     expect(prisma.dataSource.delete).toHaveBeenCalledWith({ where: { id: 'source-1' } });
     expect(prisma.agendaItem.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('enables and disables a source with a boolean value', async () => {
+    prisma.dataSource.update.mockResolvedValue({ id: 'source-1', enabled: false });
+    const response = await request(app).patch('/api/admin/sources/source-1/enabled').send({ enabled: false });
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ id: 'source-1', enabled: false });
+    expect(prisma.dataSource.update).toHaveBeenCalledWith({ where: { id: 'source-1' }, data: { enabled: false } });
+  });
+
+  it('rejects sync attempts while a source is disabled', async () => {
+    prisma.dataSource.findUnique.mockResolvedValue({ id: 'source-1', sourceType: 'legistar', enabled: false });
+    const response = await request(app).post('/api/admin/sources/source-1/sync');
+    expect(response.status).toBe(409);
+    expect(response.body.error).toMatch(/Enable this source/);
+    expect(prisma.syncLog.create).not.toHaveBeenCalled();
   });
 });
 

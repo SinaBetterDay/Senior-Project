@@ -60,12 +60,25 @@ Use this index to load the **smallest useful context set**. Paths are relative t
 - Empty placeholders (`docs/architecture.md`, `docs/client_operations_manual.md`, `docs/credentials.md`, `server/src/queues/syncQueue.js`, and `server/test_scheduleCDE.js`) are not implementation evidence.
 - Potentially stale/unwired files include `server/src/routes/adminRoutes.js`, `server/src/workers/syncWorker.js`, and old root-level `server/test_*.js`; verify imports before relying on them.
 
-## Commands
+## Required final validation
+
+Run focused tests while working. Before completing any code, configuration, dependency, or feature task, run the root suite plus checks for every affected workspace. Documentation-only tasks may run only the two documentation commands. Test-infrastructure changes must also run coverage.
 
 ```bash
+# Required after any non-documentation change
+npm test
+
+# Required after test framework, setup, dependency, or coverage changes
+npm run test:coverage
+
+# Required for documentation changes
 npm run docs:check
 npm run test:docs
-cd client && npm test && npm run typecheck && npm run build
-cd server && npm test
-cd apify && npm test && npm run build
+
+# Additional affected-workspace checks
+npm --prefix client run typecheck && npm --prefix client run build
+npm --prefix apify run build
+cd server && npx prisma validate
 ```
+
+Do not mark work complete when a required command fails; resolve it or explicitly report the remaining failure.

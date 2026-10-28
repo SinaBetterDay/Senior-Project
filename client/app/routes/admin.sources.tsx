@@ -22,6 +22,7 @@ type Source = {
   totalAgendaItems: number;
   lastError: string | null;
   status: "ready" | "running" | "success" | "failed" | "disabled";
+  enabled: boolean;
 };
 
 function formatDate(date: string | null) {
@@ -51,6 +52,7 @@ export default function AdminSourcesPage() {
   const [editingSourceId, setEditingSourceId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
   const [cityName, setCityName] = useState("");
   const [sourceType, setSourceType] = useState<"Legistar" | "Apify">("Legistar");
@@ -206,12 +208,34 @@ export default function AdminSourcesPage() {
         throw new Error(body?.error ?? body?.message ?? `Failed to delete source (${res.status})`);
       }
 
-      toast.success("Source deleted; ingested agenda items were kept");
+      const payload = await res.json();
+      toast.success(payload.message ?? "Source deleted; ingested agenda items were kept");
       await loadSources();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to delete source.");
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  async function handleToggleSource(source: Source) {
+    setTogglingId(source.id);
+    try {
+      const res = await adminFetch(`/api/admin/sources/${source.id}/enabled`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !source.enabled }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? `Failed to ${source.enabled ? "disable" : "enable"} source (${res.status})`);
+      }
+      toast.success(source.enabled ? "Source disabled" : "Source enabled");
+      await loadSources();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update source.");
+    } finally {
+      setTogglingId(null);
     }
   }
 
@@ -408,10 +432,19 @@ export default function AdminSourcesPage() {
                               <button
                                 type="button"
                                 onClick={() => handleSync(source.id)}
-                                disabled={syncingId === source.id}
+                                disabled={syncingId === source.id || !source.enabled}
                                 className="button-primary px-3 py-2"
                               >
                                 {syncingId === source.id ? "Syncing..." : "Sync now"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleSource(source)}
+                                disabled={togglingId === source.id}
+                                aria-label={`${source.enabled ? "Disable" : "Enable"} ${source.cityName} source`}
+                                className="rounded-md border border-gray-300 px-3 py-2 text-gray-700 transition hover:bg-gray-100 disabled:opacity-50"
+                              >
+                                {source.enabled ? "Disable" : "Enable"}
                               </button>
                               <button
                                 type="button"
