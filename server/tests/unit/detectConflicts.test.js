@@ -111,6 +111,34 @@ describe("detectConflictsForAgendaItems", () => {
     expect(prisma._conflicts).toHaveLength(1);
   });
 
+    it("loads stored Schedule A-2 rows into business-position detection", async () => {
+    const prisma = createMemoryPrisma({
+      agendaItems: [
+        {
+          id: "item-a2",
+          title: "Design review for Riverbank Development LLC",
+          description: "Business position conflict test.",
+        },
+      ],
+      scheduleA2: [
+        {
+          politicianId: "pol-1",
+          entityName: "Riverbank Development LLC",
+          businessPosition: "Managing Member",
+        },
+      ],
+    });
+
+    const result = await detectConflictsForAgendaItems(["item-a2"], { prisma });
+
+    expect(result.inserted).toBe(1);
+    expect(result.totalCandidates).toBe(1);
+    expect(prisma._conflicts[0]).toMatchObject({
+      conflictType: "BUSINESS_POSITION",
+      entityName: "Riverbank Development LLC",
+    });
+  });
+
   it("returns zeros for an empty id list", async () => {
     const result = await detectConflictsForAgendaItems([]);
     expect(result).toEqual({ inserted: 0, skipped: 0, totalCandidates: 0 });

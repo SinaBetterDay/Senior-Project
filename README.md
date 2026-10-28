@@ -116,7 +116,7 @@ cd Senior-Project
 # 2. Backend
 cd server
 # Create .env with DATABASE_URL, DIRECT_URL, SUPABASE_URL,
-# SUPABASE_SECRET_KEY, APIFY_TOKEN, and APIFY_ACTOR_ID.
+# SUPABASE_SECRET_KEY, FAIR_ADMIN_EMAIL, APIFY_TOKEN, and APIFY_ACTOR_ID.
 npm install
 npm run dev             # http://localhost:<PORT from src/index.js>
 
@@ -141,11 +141,20 @@ npm run dev             # Vite dev server (default port in terminal output)
 | `DATABASE_URL` | Prisma / server | Supabase session pooler URI |
 | `DIRECT_URL` | Prisma Migrate | Direct Postgres connection |
 | `SUPABASE_URL` + `SUPABASE_SECRET_KEY` | server | URL and secret/service-role key; the secret key is server-only |
+| `FAIR_ADMIN_EMAIL` | server | Exact verified Supabase Auth email permitted to use admin endpoints; missing or non-matching values are rejected with 401 |
 | `APIFY_ACTOR_ID` | server | e.g. `fppc-csus~fair-agenda-pdf-scraper` |
 | `GEMINI_API_KEY` | server | Entity resolution band only |
 | `RESEND_API_KEY` | server | Reserved for planned weekly admin digests; currently unused |
 
 The frontend uses its own `client/.env` with `VITE_API_URL`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_ANON_KEY`. Only `VITE_*` values are exposed to the browser; never place `SUPABASE_SECRET_KEY`, database URLs, or API tokens there.
+
+### Production admin verification
+
+Before release, set `FAIR_ADMIN_EMAIL` in the server deployment to the agreed
+Supabase Auth administrator email. Verify that account can call an admin route
+with a valid session, and verify a second valid Supabase account receives 401.
+Do not place the email, service-role key, or any production token in client
+environment variables.
 
 ### _To complete in CSC 191_
 
@@ -222,6 +231,19 @@ The checked-in scheduled workflow files contain only `# disabled`. If re-enabled
 - [ ] Scheduled workflow notifications and failure alerts configured
 - [ ] Post-deploy smoke checklist (health route, sample ingestion, admin login)
 
+### Backend CORS configuration
+
+Set `CLIENT_ORIGIN` in `server/.env` to the frontend's exact origin,
+including its scheme and port when applicable, without a trailing slash.
+
+Local example: `CLIENT_ORIGIN=http://localhost:5173`
+
+Production example: `CLIENT_ORIGIN=https://your-app.vercel.app`
+
+Development defaults to `http://localhost:5173` when unset.
+Production disables CORS when `CLIENT_ORIGIN` is unset.
+CORS controls browser access; admin routes also require authentication.
+
 ---
 
 ## CSC 191 timeline (JIRA backlog)
@@ -235,7 +257,7 @@ Planned delivery for **CSC 191** based on backlog user stories and story-point e
 | 1–2 | **Foundation** | FAIR-1 | Supabase schema, Prisma models, RLS & Storage bucket for Form 700 | 8 |
 | 2–3 | **Form 700 ingestion** | FAIR-2 | Admin XLSX upload, parse schedules A–E & A-2, persist filings | 13 |
 | 3–4 | **Legistar agendas** | FAIR-3 | Pull meetings/agenda items/votes for Legistar cities; normalize shape | 8 |
-| 4–5 | **PDF / Apify pipeline** | FAIR-4 | Apify actor for non-Legistar cities; PDF parse → agenda items | 13 |
+| 4–5 | **PDF / Apify pipeline** | FAIR-4 | Apify actor for non-Legistar cities; source URL retention → PDF parse → agenda items → conflict detection | 13 |
 | 5–6 | **Entity resolution** | FAIR-5 | fuse.js matching; Gemini only in feature-specific ambiguous bands; audit log | 13 |
 | 6–7 | **Conflict detection** | FAIR-6 | Create/update `ConflictFlag` records; severity & status workflow | 8 |
 | 7–8 | **Public UI** | FAIR-7 | Browse officials, agendas, flags; search & detail pages | 8 |

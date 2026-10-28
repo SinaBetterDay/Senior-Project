@@ -2,14 +2,10 @@ import express from 'express';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../src/lib/auth.js', () => ({
-  requireAdmin: (_req, _res, next) => next(),
-}));
-
 vi.mock('../../src/lib/prisma.js', () => ({
   prisma: {
     dataSource: { create: vi.fn(), update: vi.fn(), delete: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() },
-    agendaItem: { deleteMany: vi.fn(), findMany: vi.fn(), createMany: vi.fn() },
+    agendaItem: { deleteMany: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn(), createMany: vi.fn() },
     syncLog: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn() },
     $transaction: vi.fn((operations) => Promise.all(operations)),
   },
@@ -21,14 +17,23 @@ vi.mock('../../src/ingestion/legistarApi.js', () => ({
   getAgendaItems: vi.fn(),
   getVotes: vi.fn(),
 }));
-vi.mock('../../src/ingestion/apifyAgenda.js', () => ({
-  ingestApifyAgendaItems: vi.fn(),
+vi.mock('../../src/ingestion/pdfParser.js', () => ({
+  parsePdfAgenda: vi.fn(async (_buffer, cityId, meetingDate) => [{
+    cityId, meetingDate, itemNumber: '1', itemText: 'Approve a public works contract.', sourceType: 'pdf',
+  }]),
+}));
+vi.mock('../../src/jobs/runApifyAgendaScrape.js', () => ({
+  downloadPdf: vi.fn(async () => Buffer.from('pdf')),
+}));
+vi.mock('../../src/detection/detectConflicts.js', () => ({
+  detectConflictsForAgendaItems: vi.fn(async () => ({ inserted: 1, skipped: 0, totalCandidates: 1 })),
 }));
 
 import { prisma } from '../../src/lib/prisma.js';
 import { ApifyClient } from 'apify-client';
 import { ingestApifyAgendaItems } from '../../src/ingestion/apifyAgenda.js';
 import { getAgendaItems, getMeetings } from '../../src/ingestion/legistarApi.js';
+import { detectConflictsForAgendaItems } from '../../src/detection/detectConflicts.js';
 import sourcesRouter from '../../src/routes/admin/sources.js';
 
 const app = express();
@@ -44,6 +49,7 @@ const validApifySource = {
   cityName: 'Elk Grove',
   sourceType: 'Apify',
   apifyActorId: '  fair/agenda-scraper  ',
+  startUrl: 'https://www.elkgrovecity.org/city-government/city-council/meeting-agendas',
 };
 
 beforeEach(() => {
@@ -66,8 +72,11 @@ beforeEach(() => {
     EventItemAgendaNumber: '5.1',
   }]);
   prisma.agendaItem.createMany.mockResolvedValue({ count: 1 });
+  prisma.agendaItem.findMany.mockResolvedValue([]);
+  prisma.agendaItem.findUnique.mockResolvedValue(null);
+  prisma.agendaItem.upsert.mockImplementation(async ({ create }) => ({ id: 'agenda-1', ...create }));
   prisma.syncLog.create.mockResolvedValue({ id: 'sync-1' });
-  prisma.syncLog.update.mockResolvedValue({ id: 'sync-1' });
+  prisma.syncLog.update.mockImplementation(async ({ where, data }) => ({ id: where.id, ...data }));
   prisma.syncLog.findFirst.mockResolvedValue({
     id: 'sync-1',
     status: 'running',
@@ -163,6 +172,7 @@ describe('Apify actor validation on save', () => {
         cityName: 'Elk Grove',
         sourceType: 'apify',
         apifyActorId: 'fair/agenda-scraper',
+        startUrl: 'https://www.elkgrovecity.org/city-government/city-council/meeting-agendas',
       }),
     });
   });
@@ -179,6 +189,17 @@ describe('Apify actor validation on save', () => {
     expect(response.status).toBe(400);
     expect(response.body.error).toContain('configured Apify account');
     expect(response.body.error).toContain('Actor not found or not accessible');
+    expect(prisma.dataSource.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a missing start URL before checking or invoking Apify', async () => {
+    const response = await request(app).post('/api/admin/sources').send({
+      cityName: 'Elk Grove', sourceType: 'Apify', apifyActorId: 'fair/agenda-scraper',
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain('agenda archive URL');
+    expect(ApifyClient).not.toHaveBeenCalled();
     expect(prisma.dataSource.create).not.toHaveBeenCalled();
   });
 });
@@ -198,6 +219,23 @@ describe('source edit and delete', () => {
     });
   });
 
+  it('preserves an existing Apify start URL when an older client omits it', async () => {
+    vi.stubEnv('APIFY_TOKEN', 'account-token');
+    prisma.dataSource.findUnique.mockResolvedValue({
+      id: 'source-1', sourceType: 'apify', startUrl: 'https://city.gov/agendas',
+    });
+    ApifyClient.mockImplementation(function () { return { actor: () => ({ get: async () => ({ id: 'actor' }) }) }; });
+
+    const response = await request(app).put('/api/admin/sources/source-1').send({
+      cityName: 'Example', sourceType: 'Apify', apifyActorId: 'fair/agenda-scraper',
+    });
+
+    expect(response.status).toBe(200);
+    expect(prisma.dataSource.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ startUrl: 'https://city.gov/agendas' }),
+    }));
+  });
+
   it('deletes only the source configuration and leaves ingested agenda items untouched', async () => {
     const response = await request(app).delete('/api/admin/sources/source-1');
 
@@ -208,7 +246,7 @@ describe('source edit and delete', () => {
 });
 
 describe('on-demand source sync', () => {
-  it('creates a city-only discovery source and starts a run', async () => {
+  it('creates a URL-backed discovery source and starts a run', async () => {
     vi.stubEnv('APIFY_TOKEN', 'token');
     vi.stubEnv('APIFY_ACTOR_ID', 'fair/finder');
     prisma.dataSource.findFirst.mockResolvedValue(null);
@@ -218,11 +256,13 @@ describe('on-demand source sync', () => {
       dataset: () => ({ listItems: async () => ({ items: [] }) }),
     }; });
     prisma.agendaItem.findMany.mockResolvedValue([]);
-    const response = await request(app).post('/api/admin/sources/discover').send({ cityName: ' Example ' });
+    const response = await request(app).post('/api/admin/sources/discover').send({ cityName: ' Example ', startUrl: 'https://example.gov/agendas' });
     expect(response.status).toBe(202);
     expect(response.body.sourceId).toBe('source-1');
-    await vi.waitFor(() => expect(call).toHaveBeenCalledWith({ cityName: 'Example' }, { timeout: 600 }));
-    expect(prisma.dataSource.create).toHaveBeenCalledWith({ data: expect.objectContaining({ cityName: 'Example', apifyActorId: 'fair/finder', startUrl: null }) });
+    await vi.waitFor(() => expect(call).toHaveBeenCalledWith({
+      cityName: 'Example', startUrl: 'https://example.gov/agendas', maxDepth: 2, maxPages: 200, sameDomainOnly: true,
+    }, { timeout: 600 }));
+    expect(prisma.dataSource.create).toHaveBeenCalledWith({ data: expect.objectContaining({ cityName: 'Example', apifyActorId: 'fair/finder', startUrl: 'https://example.gov/agendas' }) });
   });
 
   it('rejects invalid city discovery input before creating sources', async () => {
@@ -241,7 +281,9 @@ describe('on-demand source sync', () => {
 
   it('records failed Actor runs rather than importing partial datasets', async () => {
     vi.stubEnv('APIFY_TOKEN', 'token');
-    prisma.dataSource.findUnique.mockResolvedValue({ id: 'source-1', cityName: 'Example', sourceType: 'apify', apifyActorId: 'finder' });
+    prisma.dataSource.findUnique.mockResolvedValue({
+      id: 'source-1', cityName: 'Example', sourceType: 'apify', apifyActorId: 'finder', startUrl: 'https://example.gov/agendas',
+    });
     ApifyClient.mockImplementation(function () { return { actor: () => ({ call: async () => ({ status: 'FAILED', statusMessage: 'No unique official website' }) }) }; });
     await request(app).post('/api/admin/sources/source-1/sync');
     await vi.waitFor(() => expect(prisma.syncLog.update).toHaveBeenCalledWith(expect.objectContaining({
@@ -254,6 +296,10 @@ describe('on-demand source sync', () => {
   });
 
   it('starts a Legistar ingestion and returns a running sync-log ID', async () => {
+    prisma.agendaItem.findMany
+      .mockReset()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 'agenda-1' }]);
     const response = await request(app).post('/api/admin/sources/source-1/sync');
 
     expect(response.status).toBe(202);
@@ -275,6 +321,18 @@ describe('on-demand source sync', () => {
       })],
       skipDuplicates: true,
     }));
+    await vi.waitFor(() => expect(detectConflictsForAgendaItems).toHaveBeenCalledWith(
+      ['agenda-1'],
+      { prisma },
+    ));
+    await vi.waitFor(() => expect(prisma.syncLog.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        conflictCandidates: 1,
+        conflictsDetected: 1,
+        conflictsSkipped: 0,
+        detectionErrors: [],
+      }),
+    })));
   });
 
   it('returns the persisted status and result counts for a sync run', async () => {
@@ -289,6 +347,11 @@ describe('on-demand source sync', () => {
       documentsSkipped: 1,
       itemsInserted: 3,
       itemsSkipped: 2,
+      conflictCandidates: 4,
+      conflictsDetected: 3,
+      conflictsSkipped: 1,
+      detectionErrors: [],
+      detectionFailures: 0,
       errors: null,
     });
 
@@ -304,7 +367,10 @@ describe('on-demand source sync', () => {
       documentsSkipped: 1,
       itemsInserted: 3,
       itemsSkipped: 2,
-      errors: null,
+      conflictCandidates: 4,
+      conflictsDetected: 3,
+      conflictsSkipped: 1,
+      detectionErrors: [],
       error: null,
     });
     expect(prisma.syncLog.findFirst).toHaveBeenCalledWith({
@@ -312,13 +378,77 @@ describe('on-demand source sync', () => {
     });
   });
 
-  it('routes the configured Apify actor dataset through the shared PDF ingestion service', async () => {
+  it('retries stored detection failures without rerunning agenda ingestion', async () => {
+    prisma.syncLog.findFirst.mockResolvedValue({
+      id: 'sync-1',
+      dataSourceId: 'source-1',
+      conflictCandidates: 0,
+      conflictsDetected: 0,
+      conflictsSkipped: 0,
+      detectionErrors: [{
+        agendaItemIds: ['agenda-1', 'agenda-2'],
+        message: 'detector unavailable',
+      }],
+    });
+    detectConflictsForAgendaItems.mockResolvedValue({
+      totalCandidates: 2,
+      inserted: 1,
+      skipped: 1,
+    });
+
+    const response = await request(app)
+      .post('/api/admin/sources/source-1/sync/sync-1/retry-detection');
+
+    expect(response.status).toBe(200);
+    expect(detectConflictsForAgendaItems).toHaveBeenCalledWith(
+      ['agenda-1', 'agenda-2'],
+      { prisma },
+    );
+    expect(prisma.syncLog.update).toHaveBeenCalledWith({
+      where: { id: 'sync-1' },
+      data: {
+        conflictCandidates: 2,
+        conflictsDetected: 1,
+        conflictsSkipped: 1,
+        detectionErrors: [],
+      },
+    });
+  });
+
+  it('keeps failed detection IDs available for another retry attempt', async () => {
+    prisma.syncLog.findFirst.mockResolvedValue({
+      id: 'sync-1',
+      dataSourceId: 'source-1',
+      conflictCandidates: 0,
+      conflictsDetected: 0,
+      conflictsSkipped: 0,
+      detectionErrors: [{ agendaItemIds: ['agenda-1'], message: 'first failure' }],
+    });
+    detectConflictsForAgendaItems.mockRejectedValue(new Error('still unavailable'));
+
+    const response = await request(app)
+      .post('/api/admin/sources/source-1/sync/sync-1/retry-detection');
+
+    expect(response.status).toBe(200);
+    expect(response.body.detectionErrors).toEqual([{
+      agendaItemIds: ['agenda-1'],
+      message: 'still unavailable',
+    }]);
+    expect(prisma.syncLog.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        detectionErrors: [expect.objectContaining({ agendaItemIds: ['agenda-1'] })],
+      }),
+    }));
+  });
+
+  it('runs the configured Apify actor and persists its agenda items', async () => {
     vi.stubEnv('APIFY_TOKEN', 'account-token');
     prisma.dataSource.findUnique.mockResolvedValue({
       id: 'source-1',
       cityName: 'Elk Grove',
       sourceType: 'apify',
       apifyActorId: 'fair/agenda-scraper',
+      startUrl: 'https://city.gov/agendas',
     });
     const actorCall = vi.fn().mockResolvedValue({ defaultDatasetId: 'dataset-1' });
     const actor = vi.fn(() => ({ call: actorCall }));
@@ -336,13 +466,22 @@ describe('on-demand source sync', () => {
     expect(response.status).toBe(202);
     await vi.waitFor(() => expect(datasetListItems).toHaveBeenCalledWith({ limit: 1000, offset: 0 }));
     expect(actor).toHaveBeenCalledWith('fair/agenda-scraper');
-    expect(actorCall).toHaveBeenCalledWith({ cityName: 'Elk Grove' }, { timeout: 600 });
-    await vi.waitFor(() => expect(ingestApifyAgendaItems).toHaveBeenCalledWith({
-      items: [{ pdf_url: 'https://city.gov/agenda.pdf', title: 'Council agenda', meeting_date: '2026-10-01' }],
-      source: expect.objectContaining({ id: 'source-1', cityName: 'Elk Grove', apifyActorId: 'fair/agenda-scraper' }),
-      syncLogId: 'sync-1',
-      log: console.log,
-    }));
-    expect(prisma.agendaItem.createMany).not.toHaveBeenCalled();
+    expect(actorCall).toHaveBeenCalledWith({
+      cityName: 'Elk Grove', startUrl: 'https://city.gov/agendas', maxDepth: 2, maxPages: 200, sameDomainOnly: true,
+    }, { timeout: 600 });
+    await vi.waitFor(() => expect(prisma.agendaItem.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        sourceType: 'pdf',
+        cityId: 'source-1',
+        cityName: 'Elk Grove',
+        title: 'Council agenda',
+        itemText: 'Approve a public works contract.',
+        sourceUrl: 'https://city.gov/agenda.pdf',
+      }),
+    })));
+    await vi.waitFor(() => expect(detectConflictsForAgendaItems).toHaveBeenCalledWith(
+      ['agenda-1'],
+      { prisma },
+    ));
   });
 });

@@ -9,7 +9,7 @@ type Politician = { id: string; slug?: string; fullName: string; district: strin
 export function meta() { return [{ title: "Public officials | FAIR" }, { name: "description", content: "Browse public officials, Form 700 filings, and linked conflict flags." }]; }
 
 export default function Politicians() {
-  const { data, loading, error, retry } = usePublicData<Politician[]>(`${API_URL}/api/politicians`);
+  const { data, loading, error, retry } = usePublicData<Politician[]>(`${API_URL}/api/politicians?limit=500`);
   const politicians = data ?? [];
   const [query, setQuery] = useState("");
   const visible = useMemo(() => politicians.filter((politician) => `${politician.fullName} ${politician.district ?? ""}`.toLowerCase().includes(query.trim().toLowerCase())), [politicians, query]);

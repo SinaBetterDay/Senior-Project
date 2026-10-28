@@ -6,6 +6,10 @@ const router = express.Router();
 // List all politicians.
 router.get('/', async (_req, res, next) => {
   try {
+    const requestedLimit = Number.parseInt(String(_req.query.limit ?? ''), 10);
+    const take = Number.isFinite(requestedLimit)
+      ? Math.max(1, Math.min(requestedLimit, 500))
+      : undefined;
     const politicians = await prisma.politician.findMany({
       select: {
         id: true,
@@ -21,6 +25,7 @@ router.get('/', async (_req, res, next) => {
       orderBy: {
         fullName: 'asc',
       },
+      ...(take ? { take } : {}),
     });
 
     const data = politicians.map((politician) => ({

@@ -48,7 +48,7 @@ vi.mock("../../src/jobs/scheduleCronJobs.js", () => ({ scheduleCronJobs: vi.fn()
 import { app } from "../../src/app.js";
 import { requireAdmin } from "../../src/lib/auth.js";
 import { prisma } from "../../src/lib/prisma.js";
-import { archiveWorkbook, XLSX_MIME } from "../../src/lib/storage.js";
+import { archiveWorkbook, deleteWorkbook, XLSX_MIME } from "../../src/lib/storage.js";
 import { findOrCreatePolitician } from "../../src/utils/findOrCreatePolitician.js";
 
 const ENDPOINT = "/api/admin/upload/form700";
@@ -88,6 +88,7 @@ beforeEach(() => {
     prisma.__tx[model].createMany.mockImplementation(async ({ data }) => ({ count: data.length }));
   }
   archiveWorkbook.mockResolvedValue(ARCHIVED_PATH);
+  deleteWorkbook.mockResolvedValue(undefined);
 });
 
 describe("POST /api/admin/upload/form700", () => {
@@ -170,6 +171,52 @@ describe("POST /api/admin/upload/form700", () => {
     expect(prisma.form700Filing.delete).not.toHaveBeenCalled();
   });
 
+    it("ingests a workbook with missing optional schedules", async () => {
+    const XLSX = await import("xlsx");
+    const workbook = XLSX.read(validBuffer, { type: "buffer" });
+
+    const optionalSchedule = /schedule\s+(?:b|c|d|e|a-2)\b/i;
+
+    workbook.SheetNames = workbook.SheetNames.filter((sheetName) => {
+      if (optionalSchedule.test(sheetName)) {
+        delete workbook.Sheets[sheetName];
+        return false;
+      }
+      return true;
+    });
+
+    const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+    const res = await postFile(buffer, { filename: "form700-missing-optional.xlsx" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.filing_id).toBe(FILING_ID);
+    expect(res.body.politician_id).toBe(POLITICIAN_ID);
+    expect(res.body.schedules_parsed).toMatchObject({
+      A: 39,
+      B: 0,
+      CDE: 0,
+      A2: 0,
+    });
+    expect(res.body.archived_path).toBe(ARCHIVED_PATH);
+  });
+
+    it("logs when filing cleanup fails after an archive error", async () => {
+    prisma.form700Filing.update.mockRejectedValueOnce(new Error("database unavailable"));
+    prisma.form700Filing.delete.mockRejectedValueOnce(new Error("filing delete failed"));
+
+    const res = await postFile(validBuffer);
+
+    expect(res.status).toBe(500);
+    expect(console.error).toHaveBeenCalledWith(
+      "[upload] failed to delete filing after archive error:",
+      expect.objectContaining({
+        filingId: FILING_ID,
+        politicianId: POLITICIAN_ID,
+        error: "filing delete failed",
+      }),
+    );
+  });
+
   it("uses an explicit politician_id form field instead of entity resolution", async () => {
     const override = "99999999-8888-4777-8666-555555555555";
     const res = await postFile(validBuffer, { fields: { politician_id: override } });
@@ -201,6 +248,25 @@ describe("POST /api/admin/upload/form700", () => {
 
     expect(res.status).toBe(400);
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for a workbook with no recognizable Form 700 sheets", async () => {
+    const XLSX = await import("xlsx");
+    const workbook = XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet([["Instructions"], ["Not a Form 700 workbook"]]),
+      "Instructions",
+    );
+
+    const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+    const res = await postFile(buffer, { filename: "unsupported.xlsx" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/recognizable Form 700 sheets/i);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(archiveWorkbook).not.toHaveBeenCalled();
   });
 
   it("returns 400 when the MIME type is not XLSX", async () => {
@@ -274,11 +340,45 @@ describe("POST /api/admin/upload/form700", () => {
     const res = await postFile(validBuffer);
 
     expect(res.status).toBe(500);
-    expect(res.body.error).toMatch(/Failed to archive workbook/);
+    expect(res.body.error).toBe(
+      'The server could not complete this request. Please try again.'
+    );
     expect(res.body).not.toHaveProperty('stack');
     expect(JSON.stringify(res.body)).not.toContain('bucket unavailable');
     expect(prisma.form700Filing.delete).toHaveBeenCalledWith({ where: { id: FILING_ID } });
     expect(prisma.form700Filing.update).not.toHaveBeenCalled();
+  });
+
+  it("deletes the archived workbook and filing when saving the archive path fails", async () => {
+    prisma.form700Filing.update.mockRejectedValueOnce(new Error("database unavailable"));
+
+    const res = await postFile(validBuffer);
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe(
+      'The server could not complete this request. Please try again.'
+    );
+    expect(deleteWorkbook).toHaveBeenCalledWith(ARCHIVED_PATH);
+    expect(prisma.form700Filing.delete).toHaveBeenCalledWith({ where: { id: FILING_ID } });
+    expect(prisma.form700Filing.update).toHaveBeenCalled();
+  });
+
+  it("logs enough information when archived workbook cleanup fails", async () => {
+    prisma.form700Filing.update.mockRejectedValueOnce(new Error("database unavailable"));
+    deleteWorkbook.mockRejectedValueOnce(new Error("storage delete failed"));
+
+    const res = await postFile(validBuffer);
+
+    expect(res.status).toBe(500);
+    expect(console.error).toHaveBeenCalledWith(
+      "[upload] failed to delete archived workbook after archive error:",
+      expect.objectContaining({
+          filingId: FILING_ID,
+          politicianId: POLITICIAN_ID,
+          archivedPath: ARCHIVED_PATH,
+          error: "storage delete failed",
+        }), 
+    );
   });
 
   it("does not archive anything when a schedule insert fails inside the transaction", async () => {
@@ -287,8 +387,10 @@ describe("POST /api/admin/upload/form700", () => {
     const res = await postFile(validBuffer);
 
     expect(res.status).toBe(500);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(archiveWorkbook).not.toHaveBeenCalled();
     expect(prisma.form700Filing.update).not.toHaveBeenCalled();
+    expect(prisma.form700Filing.delete).not.toHaveBeenCalled();
   });
 
   it("returns 400 when neither the cover page nor the form supplies a filer", async () => {

@@ -1,11 +1,19 @@
 // server/src/routes/admin/sources.js
 import express from 'express';
 import { syncErrorMessage } from '../../utils/syncErrorMessage.js';
-import { requireAdmin } from '../../lib/auth.js';
 import { ApifyClient } from 'apify-client';
 import { prisma } from '../../lib/prisma.js';
 import { ingestApifyAgendaItems } from '../../ingestion/apifyAgenda.js';
 import { getAgendaItems, getMeetings } from '../../ingestion/legistarApi.js';
+import { parsePdfAgenda } from '../../ingestion/pdfParser.js';
+import { upsertAgendaItems } from '../../ingestion/upsertAgendaItems.js';
+import { apifySourceDiagnostic, buildApifyActorInput } from '../../ingestion/apifyActorInput.js';
+import { downloadPdf } from '../../jobs/runApifyAgendaScrape.js';
+import { detectConflictsForAgendaItems } from '../../detection/detectConflicts.js';
+import {
+  detectAgendaConflictsSafely,
+  getRetryableAgendaItemIds,
+} from '../../detection/detectAgendaConflictsSafely.js';
 
 const router = express.Router();
 
@@ -73,18 +81,23 @@ async function validateSourceInput(body) {
     };
   }
 
+  const startUrl = validateStartUrl(body.startUrl, { required: true });
   return {
     cityName,
     sourceType: 'apify',
     legistarBaseUrl: null,
     apifyActorId: await validateApifyActorId(body.apifyActorId || process.env.APIFY_ACTOR_ID),
-    startUrl: validateStartUrl(body.startUrl),
+    startUrl,
   };
 }
 
-function validateStartUrl(value) {
-  if (value == null || value === '') return null;
-  const url = new URL(value);
+function validateStartUrl(value, { required = false } = {}) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized) {
+    if (required) throw new Error('Enter the public HTTPS agenda archive URL required by the Apify actor.');
+    return null;
+  }
+  const url = new URL(normalized);
   if (url.protocol !== 'https:' || url.username || url.password || url.hostname === 'localhost') {
     throw new Error('Use a public HTTPS council agenda URL.');
   }
@@ -128,13 +141,34 @@ async function runLegistarSource(source) {
     }
   }
 
-  const result = rows.length
-    ? await prisma.agendaItem.createMany({ data: rows, skipDuplicates: true })
+  const legistarItemIds = rows.map((row) => row.legistarItemId);
+  const existing = rows.length
+    ? await prisma.agendaItem.findMany({
+        where: { legistarItemId: { in: legistarItemIds } },
+        select: { legistarItemId: true },
+      })
+    : [];
+  const existingIds = new Set(existing.map((row) => row.legistarItemId));
+  const newRows = rows.filter((row) => !existingIds.has(row.legistarItemId));
+  const result = newRows.length
+    ? await prisma.agendaItem.createMany({ data: newRows, skipDuplicates: true })
     : { count: 0 };
+  const insertedRows = result.count > 0
+    ? await prisma.agendaItem.findMany({
+        where: { legistarItemId: { in: newRows.map((row) => row.legistarItemId) } },
+        select: { id: true },
+      })
+    : [];
+  const detection = await detectAgendaConflictsSafely(
+    insertedRows.map((row) => row.id),
+    detectConflictsForAgendaItems,
+    { prisma },
+  );
   return {
     itemsFound: rows.length,
     itemsInserted: result.count,
     itemsSkipped: rows.length - result.count,
+    ...detection,
   };
 }
 
@@ -177,6 +211,11 @@ async function executeSourceSync(source, syncLogId) {
           itemsFound: result.itemsFound,
           itemsInserted: result.itemsInserted,
           itemsSkipped: result.itemsSkipped,
+          conflictCandidates: result.conflictCandidates ?? 0,
+          conflictsDetected: result.conflictsDetected ?? 0,
+          conflictsSkipped: result.conflictsSkipped ?? 0,
+          detectionErrors: result.detectionErrors ?? [],
+          detectionFailures: result.detectionErrors?.length ?? 0,
         },
       }),
       prisma.dataSource.update({
@@ -210,9 +249,13 @@ async function executeSourceSync(source, syncLogId) {
   }
 }
 
-router.get('/', requireAdmin, async (req, res) => {
+router.get('/', async (req, res) => {
+  const startedAt = performance.now();
+  const id = req.requestId ?? 'unknown';
   try {
+    console.info(`[sources:${id}] loading source rows`);
     const sources = await prisma.dataSource.findMany({ orderBy: { cityName: 'asc' } });
+    console.info(`[sources:${id}] loaded ${sources.length} source rows in ${Math.round(performance.now() - startedAt)}ms; loading counts and sync status`);
     const rows = await Promise.all(sources.map(async (source) => {
       const [totalAgendaItems, latestSync] = await Promise.all([
         prisma.agendaItem.count({
@@ -248,6 +291,8 @@ router.get('/', requireAdmin, async (req, res) => {
         status: latestSync?.status ?? (source.enabled ? 'ready' : 'disabled'),
       };
     }));
+
+    console.info(`[sources:${id}] complete ${rows.length} rows in ${Math.round(performance.now() - startedAt)}ms`);
     return res.json(rows);
   } catch (err) {
     console.error('[admin/sources] failed to load sources', err);
@@ -256,7 +301,7 @@ router.get('/', requireAdmin, async (req, res) => {
 });
 
 // Create/reuse a city source and start discovery without waiting for the crawl.
-router.post('/discover', requireAdmin, async (req, res) => {
+router.post('/discover', async (req, res) => {
   try {
     const cityName = typeof req.body.cityName === 'string' ? req.body.cityName.trim() : '';
     if (!cityName || cityName.length > 100) return res.status(400).json({ error: 'Enter a California city name (1–100 characters).' });
@@ -277,7 +322,7 @@ router.post('/discover', requireAdmin, async (req, res) => {
   }
 });
 
-router.get('/:id/documents', requireAdmin, async (req, res) => {
+router.get('/:id/documents', async (req, res) => {
   try {
     const rows = await prisma.agendaItem.findMany({
       where: { cityId: req.params.id, sourceType: 'apify' },
@@ -298,7 +343,7 @@ router.get('/:id/documents', requireAdmin, async (req, res) => {
   }
 });
 
-router.post('/', requireAdmin, async (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const source = await prisma.dataSource.create({ data: await validateSourceInput(req.body) });
     return res.status(201).json(source);
@@ -307,11 +352,16 @@ router.post('/', requireAdmin, async (req, res) => {
   }
 });
 
-router.put('/:id', requireAdmin, async (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
+    const existing = await prisma.dataSource.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Source not found.' });
+    const body = req.body.sourceType?.toLowerCase() === 'apify' && req.body.startUrl == null
+      ? { ...req.body, startUrl: existing.startUrl }
+      : req.body;
     const source = await prisma.dataSource.update({
       where: { id: req.params.id },
-      data: await validateSourceInput(req.body),
+      data: await validateSourceInput(body),
     });
     return res.json(source);
   } catch (error) {
@@ -320,7 +370,7 @@ router.put('/:id', requireAdmin, async (req, res) => {
   }
 });
 
-router.delete('/:id', requireAdmin, async (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
     // Agenda items are not deleted with a source; sync-log references use SET NULL.
     await prisma.dataSource.delete({ where: { id: req.params.id } });
@@ -332,7 +382,7 @@ router.delete('/:id', requireAdmin, async (req, res) => {
   }
 });
 
-router.post('/:id/sync', requireAdmin, async (req, res) => {
+router.post('/:id/sync', async (req, res) => {
   try {
     const source = await prisma.dataSource.findUnique({ where: { id: req.params.id } });
     if (!source) return res.status(404).json({ error: 'Source not found.' });
@@ -350,7 +400,7 @@ router.post('/:id/sync', requireAdmin, async (req, res) => {
   }
 });
 
-router.get('/:id/sync/:syncLogId', requireAdmin, async (req, res) => {
+router.get('/:id/sync/:syncLogId', async (req, res) => {
   try {
     const syncLog = await prisma.syncLog.findFirst({
       where: { id: req.params.syncLogId, dataSourceId: req.params.id },
@@ -367,12 +417,56 @@ router.get('/:id/sync/:syncLogId', requireAdmin, async (req, res) => {
       documentsSkipped: syncLog.documentsSkipped,
       itemsInserted: syncLog.itemsInserted,
       itemsSkipped: syncLog.itemsSkipped,
-      errors: syncLog.errors,
+      conflictCandidates: syncLog.conflictCandidates,
+      conflictsDetected: syncLog.conflictsDetected,
+      conflictsSkipped: syncLog.conflictsSkipped,
+      detectionErrors: syncLog.detectionErrors,
+      detectionFailures: syncLog.detectionErrors?.length ?? 0,
       error: syncErrorMessage(syncLog.errors),
     });
   } catch (error) {
     console.error('[admin/sources] failed to load sync status', error);
     return res.status(500).json({ error: 'Failed to load sync status.' });
+  }
+});
+
+router.post('/:id/sync/:syncLogId/retry-detection', async (req, res) => {
+  try {
+    const syncLog = await prisma.syncLog.findFirst({
+      where: { id: req.params.syncLogId, dataSourceId: req.params.id },
+    });
+    if (!syncLog) return res.status(404).json({ error: 'Sync run not found.' });
+
+    const agendaItemIds = getRetryableAgendaItemIds(syncLog.detectionErrors);
+    if (agendaItemIds.length === 0) {
+      return res.status(409).json({ error: 'This sync run has no retryable detection failures.' });
+    }
+
+    const detection = await detectAgendaConflictsSafely(
+      agendaItemIds,
+      detectConflictsForAgendaItems,
+      { prisma },
+    );
+    const updated = await prisma.syncLog.update({
+      where: { id: syncLog.id },
+      data: {
+        conflictCandidates: (syncLog.conflictCandidates ?? 0) + detection.conflictCandidates,
+        conflictsDetected: (syncLog.conflictsDetected ?? 0) + detection.conflictsDetected,
+        conflictsSkipped: (syncLog.conflictsSkipped ?? 0) + detection.conflictsSkipped,
+        detectionErrors: detection.detectionErrors,
+      },
+    });
+
+    return res.json({
+      conflictCandidates: updated.conflictCandidates,
+      conflictsDetected: updated.conflictsDetected,
+      conflictsSkipped: updated.conflictsSkipped,
+      detectionErrors: updated.detectionErrors,
+      detectionFailures: updated.detectionErrors.length,
+    });
+  } catch (error) {
+    console.error('[admin/sources] failed to retry conflict detection', error);
+    return res.status(500).json({ error: 'Failed to retry conflict detection.' });
   }
 });
 
