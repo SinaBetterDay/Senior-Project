@@ -21,6 +21,7 @@ router.get("/", async (_req, res, next) => {
       ? Math.max(1, Math.min(requestedLimit, 100))
       : undefined;
     const conflicts = await prisma.conflict.findMany({
+      where: { OR: [{ eligibilityStatus: null }, { eligibilityStatus: "active" }] },
       include: conflictInclude,
       orderBy: [
         { detectedAt: "desc" },
@@ -92,6 +93,23 @@ function formatScheduleEntry(row, scheduleType) {
 }
 
 async function findScheduleEntry(conflict) {
+  const delegates = {
+    INVESTMENT: [prisma.scheduleAInvestment, "A"],
+    REAL_ESTATE: [prisma.scheduleBRealEstate, "B"],
+    BUSINESS_POSITION: [prisma.scheduleA2BusinessPosition, "A-2"],
+    INCOME: [prisma.scheduleCdeIncome, "C"],
+    GIFT: [prisma.scheduleCdeIncome, "D"],
+    TRAVEL: [prisma.scheduleCdeIncome, "E"],
+  };
+  if (conflict.disclosureId && delegates[conflict.conflictType]) {
+    const [delegate, type] = delegates[conflict.conflictType];
+    const row = await delegate.findFirst({ where: {
+      id: conflict.disclosureId,
+      filingId: conflict.filingId,
+      filing: { politicianId: conflict.politicianId },
+    } });
+    return formatScheduleEntry(row, type);
+  }
   const politicianWhere = {
     OR: [
       { politicianId: conflict.politicianId },
@@ -149,6 +167,7 @@ router.get("/export", async (req, res, next) => {
     let cursor;
 
     const getBatch = () => prisma.conflict.findMany({
+      where: { OR: [{ eligibilityStatus: null }, { eligibilityStatus: "active" }] },
       include: conflictInclude,
       orderBy: { id: "asc" },
       take: batchSize,
@@ -234,6 +253,11 @@ router.get("/:id", async (req, res, next) => {
         severity: conflict.severity,
         ruleReference: conflict.ruleReference,
         entityName: conflict.entityName,
+        eligibilityStatus: conflict.eligibilityStatus ?? "unknown",
+        filingId: conflict.filingId ?? null,
+        disclosureId: conflict.disclosureId ?? null,
+        filingYear: conflict.filingYear ?? null,
+        supportingSource: conflict.supportingSource ?? null,
         scheduleEntry,
         agendaItem: {
           title: agendaItem.title,
