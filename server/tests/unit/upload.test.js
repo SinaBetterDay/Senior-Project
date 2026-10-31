@@ -429,7 +429,9 @@ describe("POST /api/admin/upload/form700", () => {
     const res = await postFile(validBuffer);
 
     expect(res.status).toBe(500);
-    expect(res.body.error).toMatch(/Failed to archive workbook/);
+    expect(res.body.error).toBe(
+      'The server could not complete this request. Please try again.'
+    );
     expect(res.body).not.toHaveProperty('stack');
     expect(JSON.stringify(res.body)).not.toContain('bucket unavailable');
     expect(prisma.form700Filing.delete).toHaveBeenCalledWith({ where: { id: FILING_ID } });
@@ -443,7 +445,9 @@ describe("POST /api/admin/upload/form700", () => {
     const res = await postFile(validBuffer);
 
     expect(res.status).toBe(500);
-    expect(res.body.error).toMatch(/Failed to archive workbook/);
+    expect(res.body.error).toBe(
+      'The server could not complete this request. Please try again.'
+    );
     expect(deleteWorkbook).toHaveBeenCalledWith(ARCHIVED_PATH);
     expect(prisma.form700Filing.delete).toHaveBeenCalledWith({ where: { id: FILING_ID } });
     expect(prisma.form700Filing.update).toHaveBeenCalled();

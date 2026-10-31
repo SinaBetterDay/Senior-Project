@@ -21,8 +21,8 @@ const politicianId = '3ecbdca3-c69d-4a38-9e41-a57f31d0973e';
 beforeEach(() => vi.clearAllMocks());
 
 describe('public conflict detail', () => {
-  it('returns 404 for malformed and missing IDs', async () => {
-    expect((await request(app).get('/api/conflicts/not-an-id')).status).toBe(404);
+  it('returns 400 for malformed and 404 for missing IDs', async () => {
+    expect((await request(app).get('/api/conflicts/not-an-id')).status).toBe(400);
     expect(db.conflict.findUnique).not.toHaveBeenCalled();
     db.conflict.findUnique.mockResolvedValue(null);
     expect((await request(app).get(`/api/conflicts/${id}`)).status).toBe(404);
@@ -45,7 +45,7 @@ describe('public conflict detail', () => {
 
     const response = await request(app).get(`/api/conflicts/${id}`);
     expect(response.status).toBe(200);
-    expect(response.body.data.politician).toEqual({ name: 'Alex Rivera', district: '4' });
+    expect(response.body.data.politician).toEqual({ id: politicianId, name: 'Alex Rivera', district: '4' });
     expect(response.body.data.scheduleEntry).toEqual({
       scheduleType: 'A', entityName: 'Acme, Inc.', dollarValue: '$10,000 - $100,000', natureOfInterest: 'Stock',
     });
