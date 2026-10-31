@@ -1,10 +1,11 @@
+import { Prisma } from '@prisma/client';
+import { parseConflictQuery, conflictSql } from '../utils/conflictQuery.js';
 import express from "express";
 import { prisma } from "../lib/prisma.js";
 import { normalizeEntityName } from "../utils/entityNorm.js";
 import {
   conflictInclude,
   dashboardRow,
-  parseExportFilters,
   matchesFilters,
   csvHeaders,
   csvLine,
@@ -14,27 +15,27 @@ import {
 const router = express.Router();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-router.get("/", async (_req, res, next) => {
+router.get("/", async (req, res, next) => {
   try {
-    const requestedLimit = Number.parseInt(String(_req.query.limit ?? ""), 10);
-    const take = Number.isFinite(requestedLimit)
-      ? Math.max(1, Math.min(requestedLimit, 100))
-      : undefined;
-    const conflicts = await prisma.conflict.findMany({
-      include: conflictInclude,
-      orderBy: [
-        { detectedAt: "desc" },
-        { id: "asc" },
-      ],
-      ...(take ? { take } : {}),
-    });
+    const filters = parseConflictQuery(req.query);
+    const { from, order } = conflictSql(filters);
+    const result = await prisma.$transaction(async tx => {
+      const totals = await tx.$queryRaw(Prisma.sql`SELECT COUNT(*)::int AS total ${from}`);
+      const ids = await tx.$queryRaw(Prisma.sql`SELECT c.id ${from} ORDER BY ${order} LIMIT ${filters.pageSize} OFFSET ${(filters.page - 1) * filters.pageSize}`);
+      const rows = ids.length ? await tx.conflict.findMany({ where: { id: { in: ids.map(row => row.id) } }, include: conflictInclude }) : [];
+      const byId = new Map(rows.map(row => [row.id, row]));
+      return { data: ids.map(row => dashboardRow(byId.get(row.id))), total: totals[0].total };
+    }, { isolationLevel: 'RepeatableRead' });
+    res.json({ ...result, page: filters.page, pageSize: filters.pageSize });
+  } catch (error) { next(error); }
+});
 
-    res.status(200).json({
-      data: conflicts.map(dashboardRow),
-    });
-  } catch (error) {
-    next(error);
-  }
+// Global city choices must not be derived from just one results page.
+router.get('/filters', async (_req, res, next) => {
+  try {
+    const cities = await prisma.$queryRaw(Prisma.sql`SELECT DISTINCT COALESCE(a.city_name, j.name, 'Unknown') AS city FROM conflicts c JOIN agenda_items a ON a.id = c.agenda_item_id JOIN politicians p ON p.id = c.politician_id LEFT JOIN jurisdictions j ON j.id = p.jurisdiction_id ORDER BY city`);
+    res.json({ data: cities.map(row => row.city) });
+  } catch (error) { next(error); }
 });
 
 const STREET_ABBREVIATIONS = [
@@ -84,6 +85,7 @@ function formatScheduleEntry(row, scheduleType) {
   if (!row) return null;
 
   return {
+    id: row.id,
     scheduleType,
     entityName: row.entityName ?? row.sourceName ?? row.propertyDescription ?? null,
     dollarValue: row.fairMarketValue ?? row.amount ?? row.grossIncomeRange ?? null,
@@ -139,7 +141,7 @@ router.get("/export", async (req, res, next) => {
   let filters;
 
   try {
-    filters = parseExportFilters(req.query);
+    filters = parseConflictQuery(req.query);
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }
@@ -204,7 +206,7 @@ router.get("/export", async (req, res, next) => {
 
 router.get("/:id", async (req, res, next) => {
   if (!UUID.test(req.params.id)) {
-    return res.status(404).json({ error: "Conflict not found" });
+    return res.status(400).json({ error: "Invalid conflict ID" });
   }
 
   try {
@@ -227,6 +229,7 @@ router.get("/:id", async (req, res, next) => {
       data: {
         id: conflict.id,
         politician: {
+          id: conflict.politicianId,
           name: conflict.politician.fullName,
           district: conflict.politician.district,
         },
@@ -236,6 +239,7 @@ router.get("/:id", async (req, res, next) => {
         entityName: conflict.entityName,
         scheduleEntry,
         agendaItem: {
+          id: conflict.agendaItemId,
           title: agendaItem.title,
           text: agendaItem.itemText ?? agendaItem.description ?? agendaItem.title,
           meetingDate: agendaItem.meetingDate ?? agendaItem.meeting?.meetingDate ?? null,
