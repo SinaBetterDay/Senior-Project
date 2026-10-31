@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../src/lib/prisma.js', () => ({
   prisma: {
     dataSource: { create: vi.fn(), update: vi.fn(), delete: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() },
-    agendaItem: { deleteMany: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn(), createMany: vi.fn() },
+    agendaItem: { count: vi.fn(), deleteMany: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn(), createMany: vi.fn() },
     syncLog: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn() },
     $transaction: vi.fn((operations) => Promise.all(operations)),
   },
@@ -32,6 +32,7 @@ vi.mock('../../src/detection/detectConflicts.js', () => ({
 import { prisma } from '../../src/lib/prisma.js';
 import { ApifyClient } from 'apify-client';
 import { getAgendaItems, getMeetings } from '../../src/ingestion/legistarApi.js';
+import { detectConflictsForAgendaItems } from '../../src/detection/detectConflicts.js';
 import sourcesRouter from '../../src/routes/admin/sources.js';
 
 const app = express();
@@ -61,7 +62,9 @@ beforeEach(() => {
     cityName: 'Sacramento',
     sourceType: 'legistar',
     legistarBaseUrl: 'https://webapi.legistar.com/v1/sacramento',
+    enabled: true,
   });
+  prisma.agendaItem.count.mockResolvedValue(3);
   getMeetings.mockResolvedValue([{ EventId: 42, EventDate: '2026-10-01', EventBodyName: 'City Council' }]);
   getAgendaItems.mockResolvedValue([{
     EventItemId: 9001,
@@ -74,7 +77,7 @@ beforeEach(() => {
   prisma.agendaItem.findUnique.mockResolvedValue(null);
   prisma.agendaItem.upsert.mockImplementation(async ({ create }) => ({ id: 'agenda-1', ...create }));
   prisma.syncLog.create.mockResolvedValue({ id: 'sync-1' });
-  prisma.syncLog.update.mockResolvedValue({ id: 'sync-1' });
+  prisma.syncLog.update.mockImplementation(async ({ where, data }) => ({ id: where.id, ...data }));
   prisma.syncLog.findFirst.mockResolvedValue({
     id: 'sync-1',
     status: 'running',
@@ -225,9 +228,26 @@ describe('source edit and delete', () => {
   it('deletes only the source configuration and leaves ingested agenda items untouched', async () => {
     const response = await request(app).delete('/api/admin/sources/source-1');
 
-    expect(response.status).toBe(204);
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ deleted: true, sourceId: 'source-1', preservedAgendaItems: 3 });
     expect(prisma.dataSource.delete).toHaveBeenCalledWith({ where: { id: 'source-1' } });
     expect(prisma.agendaItem.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('enables and disables a source with a boolean value', async () => {
+    prisma.dataSource.update.mockResolvedValue({ id: 'source-1', enabled: false });
+    const response = await request(app).patch('/api/admin/sources/source-1/enabled').send({ enabled: false });
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ id: 'source-1', enabled: false });
+    expect(prisma.dataSource.update).toHaveBeenCalledWith({ where: { id: 'source-1' }, data: { enabled: false } });
+  });
+
+  it('rejects sync attempts while a source is disabled', async () => {
+    prisma.dataSource.findUnique.mockResolvedValue({ id: 'source-1', sourceType: 'legistar', enabled: false });
+    const response = await request(app).post('/api/admin/sources/source-1/sync');
+    expect(response.status).toBe(409);
+    expect(response.body.error).toMatch(/Enable this source/);
+    expect(prisma.syncLog.create).not.toHaveBeenCalled();
   });
 });
 
@@ -302,6 +322,18 @@ describe('on-demand source sync', () => {
       })],
       skipDuplicates: true,
     }));
+    await vi.waitFor(() => expect(detectConflictsForAgendaItems).toHaveBeenCalledWith(
+      ['agenda-1'],
+      { prisma },
+    ));
+    await vi.waitFor(() => expect(prisma.syncLog.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        conflictCandidates: 1,
+        conflictsDetected: 1,
+        conflictsSkipped: 0,
+        detectionErrors: [],
+      }),
+    })));
   });
 
   it('returns the persisted status and result counts for a sync run', async () => {
@@ -313,6 +345,11 @@ describe('on-demand source sync', () => {
       itemsFound: 5,
       itemsInserted: 3,
       itemsSkipped: 2,
+      conflictCandidates: 4,
+      conflictsDetected: 3,
+      conflictsSkipped: 1,
+      detectionErrors: [],
+      detectionFailures: 0,
       errors: null,
     });
 
@@ -325,11 +362,78 @@ describe('on-demand source sync', () => {
       itemsFound: 5,
       itemsInserted: 3,
       itemsSkipped: 2,
+      conflictCandidates: 4,
+      conflictsDetected: 3,
+      conflictsSkipped: 1,
+      detectionErrors: [],
       error: null,
     });
     expect(prisma.syncLog.findFirst).toHaveBeenCalledWith({
       where: { id: 'sync-1', dataSourceId: 'source-1' },
     });
+  });
+
+  it('retries stored detection failures without rerunning agenda ingestion', async () => {
+    prisma.syncLog.findFirst.mockResolvedValue({
+      id: 'sync-1',
+      dataSourceId: 'source-1',
+      conflictCandidates: 0,
+      conflictsDetected: 0,
+      conflictsSkipped: 0,
+      detectionErrors: [{
+        agendaItemIds: ['agenda-1', 'agenda-2'],
+        message: 'detector unavailable',
+      }],
+    });
+    detectConflictsForAgendaItems.mockResolvedValue({
+      totalCandidates: 2,
+      inserted: 1,
+      skipped: 1,
+    });
+
+    const response = await request(app)
+      .post('/api/admin/sources/source-1/sync/sync-1/retry-detection');
+
+    expect(response.status).toBe(200);
+    expect(detectConflictsForAgendaItems).toHaveBeenCalledWith(
+      ['agenda-1', 'agenda-2'],
+      { prisma },
+    );
+    expect(prisma.syncLog.update).toHaveBeenCalledWith({
+      where: { id: 'sync-1' },
+      data: {
+        conflictCandidates: 2,
+        conflictsDetected: 1,
+        conflictsSkipped: 1,
+        detectionErrors: [],
+      },
+    });
+  });
+
+  it('keeps failed detection IDs available for another retry attempt', async () => {
+    prisma.syncLog.findFirst.mockResolvedValue({
+      id: 'sync-1',
+      dataSourceId: 'source-1',
+      conflictCandidates: 0,
+      conflictsDetected: 0,
+      conflictsSkipped: 0,
+      detectionErrors: [{ agendaItemIds: ['agenda-1'], message: 'first failure' }],
+    });
+    detectConflictsForAgendaItems.mockRejectedValue(new Error('still unavailable'));
+
+    const response = await request(app)
+      .post('/api/admin/sources/source-1/sync/sync-1/retry-detection');
+
+    expect(response.status).toBe(200);
+    expect(response.body.detectionErrors).toEqual([{
+      agendaItemIds: ['agenda-1'],
+      message: 'still unavailable',
+    }]);
+    expect(prisma.syncLog.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        detectionErrors: [expect.objectContaining({ agendaItemIds: ['agenda-1'] })],
+      }),
+    }));
   });
 
   it('runs the configured Apify actor and persists its agenda items', async () => {
@@ -370,5 +474,9 @@ describe('on-demand source sync', () => {
         sourceUrl: 'https://city.gov/agenda.pdf',
       }),
     })));
+    await vi.waitFor(() => expect(detectConflictsForAgendaItems).toHaveBeenCalledWith(
+      ['agenda-1'],
+      { prisma },
+    ));
   });
 });

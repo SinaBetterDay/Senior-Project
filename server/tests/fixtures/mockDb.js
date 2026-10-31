@@ -5,8 +5,9 @@ export function createMockPrisma({
   scheduleB = [],
   scheduleCde = [],
   scheduleA2 = [],
+  initialConflicts = [],
 } = {}) {
-  const insertedConflicts = [];
+  const insertedConflicts = [...initialConflicts];
 
   const filterRows = (rows, { where }) => rows.filter((row) =>
     where.filing.politician.OR[0].jurisdictionId.in.includes(row.filing?.politician?.jurisdictionId ?? row.politicianJurisdictionId)

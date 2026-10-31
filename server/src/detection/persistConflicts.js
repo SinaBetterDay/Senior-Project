@@ -42,6 +42,7 @@ export function conflictUniqueKey(candidate) {
 export async function persistConflicts(candidates, deps = {}) {
   const rows = [];
   const seen = new Set();
+  let duplicates = 0;
 
   for (const candidate of candidates || []) {
     const record = toConflictRecord(candidate);
@@ -56,7 +57,10 @@ export async function persistConflicts(candidates, deps = {}) {
       continue;
     }
     const key = conflictUniqueKey(record);
-    if (seen.has(key)) continue;
+    if (seen.has(key)) {
+      duplicates += 1;
+      continue;
+    }
     seen.add(key);
     rows.push(record);
   }

@@ -16,6 +16,13 @@ const politicianSelect = {
 };
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+class ReconciliationConflict extends Error {
+  constructor(message) {
+    super(message);
+    this.statusCode = 409;
+  }
+}
+
 function cleanString(value) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -187,6 +194,152 @@ router.put("/:id", async (req, res, next) => {
   }
 });
 
+router.post("/:id/approve", async (req, res, next) => {
+  try {
+    if (!uuidPattern.test(req.params.id)) {
+      return res.status(400).json({ error: "Politician id must be a UUID." });
+    }
+    const politician = await prisma.politician.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, needsReview: true },
+    });
+    if (!politician) return res.status(404).json({ error: "Politician not found." });
+    if (!politician.needsReview) {
+      return res.json({ data: { id: politician.id, needsReview: false }, alreadyApproved: true });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.politician.update({
+        where: { id: politician.id },
+        data: { needsReview: false },
+      });
+      await tx.politicianReviewEvent.create({
+        data: {
+          politicianId: politician.id,
+          action: "approved",
+          adminUserId: req.user?.id ?? req.user?.email ?? "unknown",
+        },
+      });
+    });
+    return res.json({ data: { id: politician.id, needsReview: false }, alreadyApproved: false });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+async function reconcilePoliticians(tx, sourceId, targetId, adminUserId) {
+  const [source, target] = await Promise.all([
+    tx.politician.findUnique({ where: { id: sourceId }, select: { id: true, fullName: true } }),
+    tx.politician.findUnique({ where: { id: targetId }, select: { id: true, fullName: true } }),
+  ]);
+
+  if (!source) {
+    const prior = await tx.politicianReviewEvent.findUnique({ where: { sourcePoliticianId: sourceId } });
+    if (prior?.politicianId === targetId) return { alreadyMerged: true, sourceName: null, targetName: target?.fullName ?? null };
+    throw new ReconciliationConflict("The duplicate profile no longer exists or was reconciled into a different profile.");
+  }
+  if (!target) throw Object.assign(new Error("Target politician not found."), { statusCode: 404 });
+
+  const [sourceFilings, targetFilings, sourceVotes, sourceConflicts] = await Promise.all([
+    tx.form700Filing.findMany({ where: { politicianId: sourceId }, select: { id: true, filingYear: true } }),
+    tx.form700Filing.findMany({ where: { politicianId: targetId }, select: { filingYear: true } }),
+    tx.voteRecord.findMany({ where: { politicianId: sourceId }, select: { id: true, agendaItemId: true, vote: true } }),
+    tx.conflict.findMany({
+      where: { politicianId: sourceId },
+      select: { id: true, agendaItemId: true, conflictType: true, sourceKey: true },
+    }),
+  ]);
+
+  const targetYears = new Set(targetFilings.map((filing) => filing.filingYear));
+  const duplicateYears = sourceFilings.filter((filing) => targetYears.has(filing.filingYear)).map((filing) => filing.filingYear);
+  if (duplicateYears.length) {
+    throw new ReconciliationConflict(`Both profiles have Form 700 filings for ${[...new Set(duplicateYears)].join(", ")}. Resolve those filings before merging.`);
+  }
+
+  for (const vote of sourceVotes) {
+    const existing = await tx.voteRecord.findUnique({
+      where: { agendaItemId_politicianId: { agendaItemId: vote.agendaItemId, politicianId: targetId } },
+      select: { id: true, vote: true },
+    });
+    if (existing && existing.vote !== vote.vote) {
+      throw new ReconciliationConflict("The profiles contain different votes for the same agenda item. Resolve the vote records before merging.");
+    }
+    if (existing) await tx.voteRecord.delete({ where: { id: vote.id } });
+    else await tx.voteRecord.update({ where: { id: vote.id }, data: { politicianId: targetId } });
+  }
+
+  for (const conflict of sourceConflicts) {
+    const existing = await tx.conflict.findUnique({
+      where: {
+        politicianId_agendaItemId_conflictType_sourceKey: {
+          politicianId: targetId,
+          agendaItemId: conflict.agendaItemId,
+          conflictType: conflict.conflictType,
+          sourceKey: conflict.sourceKey,
+        },
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      await tx.conflictReview.updateMany({ where: { conflictId: conflict.id }, data: { conflictId: existing.id } });
+      await tx.conflict.delete({ where: { id: conflict.id } });
+    } else {
+      await tx.conflict.update({ where: { id: conflict.id }, data: { politicianId: targetId } });
+    }
+  }
+
+  await Promise.all([
+    tx.form700Filing.updateMany({ where: { politicianId: sourceId }, data: { politicianId: targetId } }),
+    tx.conflictFlag.updateMany({ where: { politicianId: sourceId }, data: { politicianId: targetId } }),
+    tx.scheduleAInvestment.updateMany({ where: { politicianId: sourceId }, data: { politicianId: targetId } }),
+    tx.scheduleBRealEstate.updateMany({ where: { politicianId: sourceId }, data: { politicianId: targetId } }),
+    tx.scheduleCdeIncome.updateMany({ where: { politicianId: sourceId }, data: { politicianId: targetId } }),
+    tx.scheduleA2BusinessPosition.updateMany({ where: { politicianId: sourceId }, data: { politicianId: targetId } }),
+  ]);
+  await tx.politicianReviewEvent.create({
+    data: {
+      politicianId: targetId,
+      sourcePoliticianId: sourceId,
+      action: "merged",
+      adminUserId,
+      details: { sourceName: source.fullName, targetName: target.fullName },
+    },
+  });
+  await tx.politician.delete({ where: { id: sourceId } });
+  return { alreadyMerged: false, sourceName: source.fullName, targetName: target.fullName };
+}
+
+router.post("/:id/reconcile", async (req, res, next) => {
+  try {
+    const sourceId = req.params.id;
+    const targetId = cleanString(req.body?.targetPoliticianId);
+    if (!uuidPattern.test(sourceId) || !uuidPattern.test(targetId)) {
+      return res.status(400).json({ error: "Source and target politician ids must be UUIDs." });
+    }
+    if (sourceId === targetId) return res.status(400).json({ error: "Choose a different target politician." });
+
+    const result = await prisma.$transaction(
+      (tx) => reconcilePoliticians(tx, sourceId, targetId, req.user?.id ?? req.user?.email ?? "unknown"),
+      { isolationLevel: "Serializable" },
+    );
+    return res.json({
+      data: { sourcePoliticianId: sourceId, targetPoliticianId: targetId },
+      alreadyMerged: result.alreadyMerged,
+      message: result.alreadyMerged
+        ? "This duplicate was already reconciled into the selected profile."
+        : `${result.sourceName} was reconciled into ${result.targetName}.`,
+    });
+  } catch (error) {
+    if (error?.statusCode === 409 || error?.statusCode === 404) {
+      return res.status(error.statusCode).json({ error: error.message });
+    }
+    if (error?.code === "P2034" || error?.code === "P2002") {
+      return res.status(409).json({ error: "The profiles changed during reconciliation. Refresh and try again." });
+    }
+    return next(error);
+  }
+});
+
 router.delete("/:id", async (req, res, next) => {
   try {
     if (!uuidPattern.test(req.params.id)) {
@@ -194,13 +347,23 @@ router.delete("/:id", async (req, res, next) => {
     }
     const politician = await prisma.politician.findUnique({
       where: { id: req.params.id },
-      select: { id: true, _count: { select: { filings: true } } },
+      select: {
+        id: true,
+        _count: { select: { filings: true, votes: true, conflicts: true, conflictFlags: true } },
+      },
     });
     if (!politician) return res.status(404).json({ error: "Politician not found." });
     if (politician._count.filings > 0) {
       return res.status(409).json({
         error: `This politician cannot be deleted because ${politician._count.filings} Form 700 filing(s) are linked to the profile.`,
         filing_count: politician._count.filings,
+      });
+    }
+    const otherLinkedRecords = politician._count.votes + politician._count.conflicts + politician._count.conflictFlags;
+    if (otherLinkedRecords > 0) {
+      return res.status(409).json({
+        error: "This politician has linked votes or conflict records. Reconcile the profile instead of deleting it.",
+        linked_record_count: otherLinkedRecords,
       });
     }
 

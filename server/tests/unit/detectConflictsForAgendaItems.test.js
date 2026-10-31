@@ -107,6 +107,41 @@ describe("detectConflictsForAgendaItems", () => {
   expect(mockPrisma.__insertedConflicts).toHaveLength(1);
 });
 
+it("does not change review status or notes when a conflict is redetected", async () => {
+  const reviewedConflict = {
+    politicianId: 1,
+    agendaItemId: 100,
+    conflictType: "REAL_ESTATE",
+    sourceKey: "REAL_ESTATE:123 main st",
+    reviewStatus: "confirmed_conflict",
+    reviewNote: "Reviewed and confirmed.",
+    reviewedAt: new Date("2026-01-15T12:00:00.000Z"),
+  };
+  const mockPrisma = createMockPrisma({
+    agendaItems: [
+      {
+        id: 100,
+        item_text: "Approve zoning changes for property located at 123 Main Street.",
+      },
+    ],
+    scheduleB: [
+      {
+        politicianId: 1,
+        propertyDescription: "123 Main Street",
+        city: "Sacramento",
+        county: "Sacramento",
+      },
+    ],
+    initialConflicts: [reviewedConflict],
+  });
+
+  const result = await detectConflictsForAgendaItems([100], { prisma: mockPrisma });
+
+  expect(result.inserted).toBe(0);
+  expect(result.duplicates).toBe(1);
+  expect(mockPrisma.__insertedConflicts).toEqual([reviewedConflict]);
+});
+
 it("does not persist conflicts when agenda items have no matching entities", async () => {
   const mockPrisma = createMockPrisma({
     agendaItems: [nonMatchingAgendaItem],

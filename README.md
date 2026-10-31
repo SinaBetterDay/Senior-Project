@@ -24,7 +24,7 @@ The system ingests structured agenda data (**Legistar REST**), PDF-only city age
 | Audience | Experience |
 |----------|------------|
 | **Public** | Browse officials, agendas, and flagged overlaps — no login required |
-| **FPPC admins** | Upload Form 700 files, manage sources, review conflict flags — Supabase Auth (no public registration) |
+| **FPPC admins** | Upload Form 700 files, manage/enable/disable sources, review conflict flags, and approve or reconcile politician profiles — Supabase Auth (no public registration) |
 
 ---
 
@@ -111,8 +111,8 @@ required; see `docs/conflict_rules.md` for lifecycle and missing-data behavior.
 
 ### Prerequisites (target stack)
 
-- **Node.js** 20+
-- **npm** (per-package lockfiles in `client/` and `server/`)
+- **Node.js** 22+
+- **npm** (lockfiles at the repository root and in each application package)
 - **Supabase** project (Postgres + Storage + Auth)
 - Optional: **Vercel** CLI, **Apify** token, and **Gemini** API key. Resend notifications are planned but not implemented.
 
@@ -128,6 +128,7 @@ cd server
 # Create .env with DATABASE_URL, DIRECT_URL, SUPABASE_URL,
 # SUPABASE_SECRET_KEY, FAIR_ADMIN_EMAIL, APIFY_TOKEN, and APIFY_ACTOR_ID.
 npm install
+npx prisma migrate deploy # includes politician review/reconciliation audit history
 npm run dev             # http://localhost:<PORT from src/index.js>
 
 # 3. Frontend (separate terminal)
@@ -178,7 +179,7 @@ environment variables.
 
 ## Testing
 
-> **CSC 191 — placeholder.** Formalize coverage goals, CI gates, and manual QA scripts during the course.
+FAIR uses **Vitest** across the React client, Express server, and Apify Actor. Frontend component tests use React Testing Library, while backend HTTP tests use Supertest.
 
 ### What exists today
 
@@ -186,31 +187,44 @@ environment variables.
 |------|------|-------|
 | Form 700 schedule parsers | `server/tests/unit/` | Schedules A, B, C/D/E |
 | Legistar ingestion | `server/tests/integration/legistarIngestion.test.js` | Integration |
+| Core upload → ingestion → detection → review → public display journey | `server/tests/functional/coreJourney.test.js` | Database-backed functional test |
 | Fixtures | `server/tests/fixtures/*.xlsx` | Valid + malformed samples |
 | Frontend UI and auth helpers | `client/app/**/*.test.ts(x)` | Vitest + React Testing Library |
+| Apify discovery, network, runtime, and scraping | `apify/tests/*.test.ts` | Vitest |
 
 ```bash
-cd client
-npm test
-npm run typecheck
-npm run build
-
-cd server
+# From the repository root: documentation and every unit suite
 npm test
 
-# Repository documentation/navigation checks
-cd ..
+# Generate text, HTML, and LCOV coverage reports for each application
+npm run test:coverage
+
+# Run the deterministic database-backed core journey against an isolated migrated
+# PostgreSQL database whose DATABASE_URL and DIRECT_URL contain "fair_test"
+RUN_FUNCTIONAL_TESTS=true npm run test:functional
+
+# Run a package in watch mode while developing
+npm --prefix client run test:watch
+npm --prefix server run test:watch
+npm --prefix apify run test:watch
+
+# Additional validation
 npm run docs:check
-npm run test:docs
+npm --prefix client run typecheck
+npm --prefix client run build
+npm --prefix apify run build
 ```
+
+Coverage reports are written to each package's ignored `coverage/` directory. Coverage is measured across application source files, but no percentage gate is enforced yet; establish thresholds from the recorded baseline instead of selecting an arbitrary target.
+
+The core functional test runs automatically in CI after Prisma migrations. It uses the real Express routes, Prisma database, Form 700 parsers, Legistar and Apify/PDF ingestion services, conflict detector, review persistence, search, CSV export, and report template. Supabase Auth/Storage, upstream Legistar/Apify/PDF network responses, and Chromium's PDF bytes are deterministic test doubles so the scenario remains repeatable and does not require production credentials.
 
 The admin login stores the complete Supabase session under `fair.admin.session`, including the refresh token used to renew an expired access token. If the public Supabase URL or anon key is missing or still contains the placeholder value from `client/.env.example`, the login page displays setup guidance instead of exposing a fake privileged session.
 
 ### _To complete in CSC 191_
 
-- [ ] Unit tests for Apify normalization and PDF text extraction
 - [ ] Integration tests for fuse.js + Gemini resolution boundaries (0.7 / 0.85)
-- [ ] E2E smoke tests for public browse and admin upload (Playwright or Cypress)
+- [ ] Add a browser-driven staging smoke test on top of the database-backed core functional journey
 - [ ] Coverage threshold in [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
 
 ---
@@ -229,7 +243,7 @@ The admin login stores the complete Supabase session under `fair.admin.session`,
 | Scheduled Legistar sync | **Target: GitHub Actions** | Workflow file is currently disabled |
 | Scheduled Apify PDF ingestion | **Target: GitHub Actions** | Workflow file is currently disabled |
 
-CI workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) validates documentation navigation, uses a temporary Postgres service, and runs `prisma generate`, `prisma migrate deploy`, and backend `npm test`. Railway can deploy directly from GitHub: configure root directory `server`, pre-deploy command `npx prisma migrate deploy`, start command `npm start`, and healthcheck path `/health`. Keep `CRON_ENABLED=false` when an external scheduler is enabled; otherwise scheduling is provided by the server's `node-cron` process.
+CI workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) uses Node.js 22, validates documentation navigation, uses a temporary Postgres service, runs `prisma generate` and `prisma migrate deploy`, executes all client/server/Actor unit suites, type-checks and builds the client, and builds the Apify Actor. Railway can deploy directly from GitHub: configure root directory `server`, pre-deploy command `npx prisma migrate deploy`, start command `npm start`, and healthcheck path `/health`. Keep `CRON_ENABLED=false` when an external scheduler is enabled; otherwise scheduling is provided by the server's `node-cron` process.
 
 The checked-in scheduled workflow files contain only `# disabled`. If re-enabled, they will require GitHub repository secrets `DATABASE_URL`, `DIRECT_URL`, and `APIFY_TOKEN`, plus repository variable `APIFY_ACTOR_ID`. Do not store `RAILWAY_TOKEN`, `RAILWAY_SERVICE_ID`, or other Railway deployment identifiers in runtime environment files.
 

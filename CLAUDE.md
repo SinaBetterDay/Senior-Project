@@ -30,7 +30,12 @@ Do **not** preload lockfiles, generated output, binary fixtures, Jira CSV export
 ## Change expectations
 
 - Follow the nearest `CONTEXT.md` and existing conventions.
-- Add or update tests for code changes. Documentation-only changes use `npm run docs:check`.
+- Add or update behavior-focused tests for every code change. A feature is not complete without corresponding tests.
+- For any code, configuration, dependency, or feature change, run focused tests while iterating and then run the root `npm test` command before finishing. It must pass even when only one workspace changed.
+- Run affected package validation too: `npm --prefix client run typecheck && npm --prefix client run build` for client changes, `npm --prefix apify run build` for Actor changes, and `cd server && npx prisma validate` for Prisma changes.
+- Changes to Vitest, test setup, coverage, or test dependencies also require `npm run test:coverage`.
+- Documentation-only changes require `npm run docs:check && npm run test:docs`.
+- Do not claim success if a required command fails. Fix the failure or report the exact unresolved failure in the final response.
 - Update `README.md` only when setup, usage, architecture, or user-facing capabilities change.
 - Never commit secrets or expose server credentials through `VITE_*` variables.
 

@@ -1,7 +1,9 @@
 import '../lib/env.js';
 import { parsePdfAgenda } from '../ingestion/pdfParser.js';
+import { upsertAgendaItems } from '../ingestion/upsertAgendaItems.js';
 import { prisma } from '../lib/prisma.js';
 import { detectConflictsForAgendaItems } from '../detection/detectConflicts.js';
+import { detectAgendaConflictsSafely } from '../detection/detectAgendaConflictsSafely.js';
 
 const DEFAULT_LOOKBACK_DAYS = 14;
 const PDF_DOWNLOAD_TIMEOUT_MS = 30_000;
@@ -73,32 +75,6 @@ async function findOrCreateDataSource(prismaClient, cityName) {
   });
 }
 
-async function upsertAgendaRows(prismaClient, rows, cityName) {
-  let inserted = 0;
-  let skipped = 0;
-  const insertedIds = [];
-
-  for (const row of rows) {
-    const key = {
-      cityId: row.cityId,
-      meetingDate: row.meetingDate,
-      itemNumber: row.itemNumber,
-    };
-    const where = { cityId_meetingDate_itemNumber: key };
-    const existing = await prismaClient.agendaItem.findUnique({ where, select: { id: true } });
-    const data = { ...row, cityName };
-
-    const saved = await prismaClient.agendaItem.upsert({ where, create: data, update: data });
-    if (existing) skipped += 1;
-    else {
-      inserted += 1;
-      insertedIds.push(saved.id);
-    }
-  }
-
-  return { inserted, skipped, insertedIds };
-}
-
 async function processCityItems({ cityName, items, prismaClient, parsePdf, fetchImpl, detect, log }) {
   const source = await findOrCreateDataSource(prismaClient, cityName);
   const syncLog = await prismaClient.syncLog.create({
@@ -112,7 +88,10 @@ async function processCityItems({ cityName, items, prismaClient, parsePdf, fetch
   });
   let inserted = 0;
   let skipped = 0;
+  let conflictCandidates = 0;
   let conflictsDetected = 0;
+  let conflictsSkipped = 0;
+  const detectionErrors = [];
   const errors = [];
 
   for (const item of items) {
@@ -127,12 +106,29 @@ async function processCityItems({ cityName, items, prismaClient, parsePdf, fetch
       }));
       if (rows.length === 0) throw new Error('PDF contained no parseable agenda text');
 
-      const result = await upsertAgendaRows(prismaClient, rows, cityName);
+      const result = await upsertAgendaItems(
+        prismaClient,
+        rows.map((row) => ({ ...row, cityName })),
+        (row) => ({
+          cityId_meetingDate_itemNumber: {
+            cityId: row.cityId,
+            meetingDate: row.meetingDate,
+            itemNumber: row.itemNumber,
+          },
+        }),
+      );
       inserted += result.inserted;
       skipped += result.skipped;
-      if (result.insertedIds.length > 0) {
-        const detection = await detect(result.insertedIds, { prisma: prismaClient });
-        conflictsDetected += detection.inserted;
+      if (result.changedIds.length > 0) {
+        const detection = await detectAgendaConflictsSafely(
+          result.changedIds,
+          detect,
+          { prisma: prismaClient },
+        );
+        conflictCandidates += detection.conflictCandidates;
+        conflictsDetected += detection.conflictsDetected;
+        conflictsSkipped += detection.conflictsSkipped;
+        detectionErrors.push(...detection.detectionErrors);
       }
     } catch (error) {
       skipped += 1;
@@ -153,7 +149,10 @@ async function processCityItems({ cityName, items, prismaClient, parsePdf, fetch
         itemsFound: items.length,
         itemsInserted: inserted,
         itemsSkipped: skipped,
+        conflictCandidates,
         conflictsDetected,
+        conflictsSkipped,
+        detectionErrors,
         errors: errors.length > 0 ? errors : null,
       },
     }),
@@ -163,7 +162,17 @@ async function processCityItems({ cityName, items, prismaClient, parsePdf, fetch
     }),
   ]);
 
-  return { cityName, pdfsFetched: items.length, inserted, skipped, conflictsDetected, errors };
+  return {
+    cityName,
+    pdfsFetched: items.length,
+    inserted,
+    skipped,
+    conflictCandidates,
+    conflictsDetected,
+    conflictsSkipped,
+    detectionErrors,
+    errors,
+  };
 }
 
 /** Run the full Apify → PDF → agenda_items ingestion pipeline. */
@@ -206,14 +215,22 @@ export async function runApifyAgendaScrape({
     pdfsFetched: result.pdfsFetched + summary.pdfsFetched,
     inserted: result.inserted + summary.inserted,
     skipped: result.skipped + summary.skipped,
+    conflictCandidates: result.conflictCandidates + summary.conflictCandidates,
     conflictsDetected: result.conflictsDetected + summary.conflictsDetected,
+    conflictsSkipped: result.conflictsSkipped + summary.conflictsSkipped,
+    detectionFailures: result.detectionFailures + summary.detectionErrors.length,
+    detectionErrors: result.detectionErrors.concat(summary.detectionErrors),
     errors: result.errors + summary.errors.length,
   }), {
     citiesProcessed: 0,
     pdfsFetched: 0,
     inserted: 0,
     skipped: missingCity.length,
+    conflictCandidates: 0,
     conflictsDetected: 0,
+    conflictsSkipped: 0,
+    detectionFailures: 0,
+    detectionErrors: [],
     errors: missingCity.length,
   });
 

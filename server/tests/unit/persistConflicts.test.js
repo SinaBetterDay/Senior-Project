@@ -48,4 +48,60 @@ describe("persistConflicts", () => {
     expect(secondRun.inserted).toBe(0);
     expect(secondRun.skipped).toBe(1);
   });
+
+  it("preserves an existing manual review decision when the same candidate is detected again", async () => {
+    const candidate = {
+      politicianId: "politician-1",
+      agendaItemId: "agenda-1",
+      conflictType: "INCOME",
+      severity: "MEDIUM",
+      ruleReference: "TEST_RULE",
+      entityName: "Acme Builders",
+      sourceKey: "INCOME:acme builders",
+    };
+    const reviewedAt = new Date("2026-10-25T12:00:00.000Z");
+    const existingConflict = {
+      ...candidate,
+      id: "conflict-1",
+      reviewStatus: "not_applicable",
+      reviewNote: "Reviewed; no financial interest in this agenda item.",
+      reviewedAt,
+    };
+    const persistedConflicts = [existingConflict];
+    const createMany = vi.fn(async ({ data, skipDuplicates }) => {
+      expect(skipDuplicates).toBe(true);
+      let count = 0;
+      for (const row of data) {
+        const duplicate = persistedConflicts.some((existing) => (
+          existing.politicianId === row.politicianId
+          && existing.agendaItemId === row.agendaItemId
+          && existing.conflictType === row.conflictType
+          && existing.sourceKey === row.sourceKey
+        ));
+        if (duplicate && skipDuplicates) continue;
+        persistedConflicts.push(row);
+        count += 1;
+      }
+      return { count };
+    });
+    const mockPrisma = {
+      conflict: {
+        createMany,
+        update: vi.fn(),
+        upsert: vi.fn(),
+      },
+    };
+
+    const result = await persistConflicts([candidate], { prisma: mockPrisma });
+
+    expect(result).toEqual({ inserted: 0, skipped: 1 });
+    expect(persistedConflicts).toHaveLength(1);
+    expect(persistedConflicts[0]).toMatchObject({
+      reviewStatus: "not_applicable",
+      reviewNote: "Reviewed; no financial interest in this agenda item.",
+      reviewedAt,
+    });
+    expect(mockPrisma.conflict.update).not.toHaveBeenCalled();
+    expect(mockPrisma.conflict.upsert).not.toHaveBeenCalled();
+  });
 });

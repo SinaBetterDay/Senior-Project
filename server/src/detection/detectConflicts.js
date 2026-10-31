@@ -129,10 +129,13 @@ async function detectLockedAgendaItems(client, ids, deps) {
       loadRows(client.scheduleA2BusinessPosition, jurisdictionIds),
     ]) : [[], [], [], []];
 
-  const scheduleA = (investments || []).map(asScheduleA);
-  const scheduleB = (properties || []).map(asScheduleB);
-  const scheduleCde = (sources || []).map(asScheduleCde);
-  const scheduleA2 = (positions || []).map(asScheduleA2);
+  const inScope = (row) =>
+    !politicianIds ||
+    politicianIds.includes(politicianIdFrom(row));
+  const scheduleA = (investments || []).filter(inScope).map(asScheduleA);
+  const scheduleB = (properties || []).filter(inScope).map(asScheduleB);
+  const scheduleCde = (sources || []).filter(inScope).map(asScheduleCde);
+  const scheduleA2 = (positions || []).filter(inScope).map(asScheduleA2);
 
   const matchDeps = deps.matchNamedEntity
     ? { matchNamedEntity: deps.matchNamedEntity }
