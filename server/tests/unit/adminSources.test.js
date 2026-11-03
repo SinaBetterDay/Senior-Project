@@ -6,7 +6,8 @@ vi.mock('../../src/lib/prisma.js', () => ({
   prisma: {
     dataSource: { create: vi.fn(), update: vi.fn(), delete: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() },
     agendaItem: { count: vi.fn(), deleteMany: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn(), createMany: vi.fn() },
-    syncLog: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn() },
+    syncLog: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn() },
+    syncJobRun: { findMany: vi.fn(), create: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
     $transaction: vi.fn((operations) => Promise.all(operations)),
   },
 }));
@@ -75,6 +76,11 @@ beforeEach(() => {
   prisma.agendaItem.upsert.mockImplementation(async ({ create }) => ({ id: 'agenda-1', ...create }));
   prisma.syncLog.create.mockResolvedValue({ id: 'sync-1' });
   prisma.syncLog.update.mockImplementation(async ({ where, data }) => ({ id: where.id, ...data }));
+  prisma.syncLog.updateMany.mockResolvedValue({ count: 0 });
+  prisma.syncJobRun.findMany.mockResolvedValue([]);
+  prisma.syncJobRun.create.mockResolvedValue({ id: 'job-run-1' });
+  prisma.syncJobRun.updateMany.mockResolvedValue({ count: 0 });
+  prisma.syncJobRun.update.mockResolvedValue({ id: 'job-run-1' });
   prisma.syncLog.findFirst.mockResolvedValue({
     id: 'sync-1',
     status: 'running',
@@ -509,10 +515,15 @@ describe('on-demand source sync', () => {
         apifyActorId: 'fair/agenda-scraper', startUrl: 'https://city.gov/agendas',
       },
       syncLogId: 'sync-1',
+      jobRunId: 'job-run-1',
+      skipJobLock: true,
       log: expect.any(Function),
     }));
+    expect(prisma.syncLog.update).toHaveBeenCalledWith({
+      where: { id: 'sync-1' },
+      data: { jobRunId: 'job-run-1' },
+    });
     // The ingestion service owns final status and metrics, including skipped PDFs.
-    expect(prisma.syncLog.update).not.toHaveBeenCalled();
     expect(prisma.dataSource.update).not.toHaveBeenCalled();
     expect(prisma.agendaItem.upsert).not.toHaveBeenCalled();
   });

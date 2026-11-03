@@ -17,6 +17,7 @@ describe('scheduled Apify ingestion', () => {
     vi.clearAllMocks();
     vi.stubEnv('CRON_ENABLED', 'true');
     vi.stubEnv('APIFY_LOOKBACK_DAYS', '21');
+    vi.stubEnv('CRON_TIMEZONE', 'America/Los_Angeles');
   });
 
   it('sends cron executions through the same Apify agenda job as the CLI', async () => {
@@ -29,6 +30,11 @@ describe('scheduled Apify ingestion', () => {
     const apifyCallback = schedule.mock.calls.find(([expression]) => expression === '10 3 * * 1')?.[1];
 
     expect(apifyCallback).toBeTypeOf('function');
+    expect(schedule).toHaveBeenCalledWith(
+      '10 3 * * 1',
+      apifyCallback,
+      { timezone: 'America/Los_Angeles' },
+    );
     await apifyCallback();
 
     expect(runApifyAgendaScrape).toHaveBeenCalledWith({ lookbackDays: 21 });

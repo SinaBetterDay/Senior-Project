@@ -5,8 +5,10 @@ function createPrismaDouble() {
   const sources = [];
   const agendaItems = new Map();
   const syncLogs = [];
+  const syncJobRuns = [];
   let sourceNumber = 0;
   let syncLogNumber = 0;
+  let syncJobRunNumber = 0;
   const agendaKey = (key) => JSON.stringify({
     cityId: key.cityId,
     meetingDate: new Date(key.meetingDate).toISOString(),
@@ -40,6 +42,42 @@ function createPrismaDouble() {
         Object.assign(syncLog, data);
         return syncLog;
       }),
+      updateMany: vi.fn(async ({ where, data }) => {
+        const selected = syncLogs.filter((entry) => (
+          (!where.jobRunId || entry.jobRunId === where.jobRunId)
+          && (!where.status || entry.status === where.status)
+        ));
+        selected.forEach((entry) => Object.assign(entry, data));
+        return { count: selected.length };
+      }),
+    },
+    syncJobRun: {
+      findMany: vi.fn(async ({ where }) => syncJobRuns
+        .filter((run) => (
+          run.jobKey === where.jobKey
+          && run.status === where.status
+          && run.heartbeatAt < where.heartbeatAt.lt
+        ))
+        .map(({ id }) => ({ id }))),
+      create: vi.fn(async ({ data }) => {
+        const record = { id: `job-${++syncJobRunNumber}`, ...data };
+        syncJobRuns.push(record);
+        return { id: record.id };
+      }),
+      updateMany: vi.fn(async ({ where, data }) => {
+        const record = syncJobRuns.find((run) => (
+          run.id === where.id
+          && run.status === where.status
+          && run.heartbeatAt < where.heartbeatAt.lt
+        ));
+        if (record) Object.assign(record, data);
+        return { count: record ? 1 : 0 };
+      }),
+      update: vi.fn(async ({ where, data }) => {
+        const record = syncJobRuns.find((run) => run.id === where.id);
+        Object.assign(record, data);
+        return record;
+      }),
     },
     agendaItem: {
       findUnique: vi.fn(async ({ where }) => {
@@ -61,7 +99,7 @@ function createPrismaDouble() {
     )),
   };
 
-  return { prisma, sources, agendaItems, syncLogs };
+  return { prisma, sources, agendaItems, syncLogs, syncJobRuns };
 }
 
 function pdfResponse(body = 'pdf') {
@@ -151,6 +189,40 @@ describe('runApifyAgendaScrape', () => {
       sourceUrl: 'https://city.test/agenda.pdf',
       sourceType: 'apify',
     });
+  });
+
+  it('continues with other cities after one city has a provider/document failure', async () => {
+    const state = createPrismaDouble();
+    const parseCityAgenda = vi.fn(async (_buffer, cityId, meetingDate) => {
+      if (cityId === 'source-1') throw new Error('PDF provider unavailable');
+      return [{
+        cityId,
+        meetingDate,
+        itemNumber: '1',
+        itemText: 'Approve a public works contract.',
+      }];
+    });
+
+    const result = await runApifyAgendaScrape({
+      prismaClient: state.prisma,
+      scrapeAgendaPDFs: vi.fn().mockResolvedValue([
+        { pdf_url: 'https://one.test/agenda.pdf', meeting_date: '2026-10-01', city_name: 'City One' },
+        { pdf_url: 'https://two.test/agenda.pdf', meeting_date: '2026-10-02', city_name: 'City Two' },
+      ]),
+      parsePdf: parseCityAgenda,
+      detect,
+      fetchImpl: vi.fn().mockImplementation(async () => pdfResponse()),
+      log: vi.fn(),
+    });
+
+    expect(result).toMatchObject({
+      citiesProcessed: 2,
+      errors: 1,
+      itemsInserted: 1,
+    });
+    expect(state.syncLogs.map(({ status }) => status)).toEqual(['failed', 'success']);
+    expect(state.sources[0].lastError).toContain('PDF provider unavailable');
+    expect(state.agendaItems.size).toBe(1);
   });
 
   it('detects conflicts for newly inserted agenda items and records the count', async () => {
@@ -366,6 +438,19 @@ describe('runApifyAgendaScrape', () => {
 
     expect(run).toHaveBeenCalledWith({ city: 'Test City' });
     expect(log).toHaveBeenCalledWith(JSON.stringify({ errors: 0, documentsFound: 0 }, null, 2));
+    log.mockRestore();
+  });
+
+  it('sets a failing CLI exit code when a concurrent run was skipped', async () => {
+    const previousExitCode = process.exitCode;
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await runApifyAgendaCli({
+      argv: [],
+      run: vi.fn().mockResolvedValue({ errors: 0, skippedRun: true }),
+    });
+
+    expect(process.exitCode).toBe(1);
+    process.exitCode = previousExitCode;
     log.mockRestore();
   });
 

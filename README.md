@@ -321,12 +321,14 @@ The admin login stores the complete Supabase session under `fair.admin.session`,
 | `client/` | **Vercel** | Push to `main` (or preview on PR) |
 | `server/` | **Railway** | Railway GitHub autodeploy after successful CI |
 | Database | **Supabase** | App migrations in `server/prisma/migrations/`; Supabase-only SQL in `supabase/migrations/` |
-| Scheduled Legistar sync | **Target: GitHub Actions** | Workflow file is currently disabled |
-| Scheduled Apify PDF ingestion | **Target: GitHub Actions** | Workflow file is currently disabled |
+| Legistar and Apify schedules | **Railway API service (`node-cron`)** | Sole production scheduler owner |
+| Detection and Legistar backfill | **Manual/admin or operator-triggered** | No recurring scheduler |
 
-CI workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) uses Node.js 22, validates documentation navigation, uses a temporary Postgres service, runs `prisma generate` and `prisma migrate deploy`, executes all client/server/Actor unit suites, type-checks and builds the client, and builds the Apify Actor. Railway can deploy directly from GitHub: configure root directory `server`, pre-deploy command `npx prisma migrate deploy`, start command `npm start`, and healthcheck path `/health`. Keep `CRON_ENABLED=false` when an external scheduler is enabled; otherwise scheduling is provided by the server's `node-cron` process.
+CI workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) uses Node.js 22, validates documentation navigation, uses a temporary Postgres service, runs `prisma generate` and `prisma migrate deploy`, executes all client/server/Actor unit suites, type-checks and builds the client, and builds the Apify Actor. Railway can deploy directly from GitHub: configure root directory `server`, pre-deploy command `npx prisma migrate deploy`, start command `npm start`, and healthcheck path `/health`. **The Railway API service is the single production scheduler owner** for Legistar and Apify: set `CRON_ENABLED=true` on that service only. CI and local development keep it false. Do not configure GitHub Actions or another external scheduler for these jobs.
 
-The checked-in scheduled workflow files contain only `# disabled`. If re-enabled, they will require GitHub repository secrets `DATABASE_URL`, `DIRECT_URL`, and `APIFY_TOKEN`, plus repository variable `APIFY_ACTOR_ID`. Do not store `RAILWAY_TOKEN`, `RAILWAY_SERVICE_ID`, or other Railway deployment identifiers in runtime environment files.
+Configure the Railway scheduler environment as follows: `CRON_TIMEZONE=America/Los_Angeles`, `LEGISTAR_CRON_SCHEDULE=0 2 * * *` (daily at 02:00, 30-day lookback), and `APIFY_AGENDA_CRON_SCHEDULE=10 3 * * 1` (Mondays at 03:10, 14-day lookback). The checked-in GitHub scheduled workflow files contain only `# disabled`. Detection and Legistar backfill are operator/admin-triggered, not separately scheduled. Do not store `RAILWAY_TOKEN`, `RAILWAY_SERVICE_ID`, or other Railway deployment identifiers in runtime environment files.
+
+Each Legistar run, Apify run, and Apify city ingestion claims a persisted Postgres run key; a unique partial index prevents concurrent runs for the same key. Heartbeats run every 30 seconds. On startup and before a new claim, runs whose heartbeat is older than five minutes are marked interrupted and their running source sync logs are failed with a recovery message. There are no automatic in-process provider retries: failures are recorded per source and are retried by the next schedule (daily/weekly) or an explicit admin/CLI rerun. Agenda-item and conflict identity constraints make these reruns idempotent.
 
 ### _To complete in CSC 191_
 

@@ -4,6 +4,7 @@ import { fetchLegistarAgendaItemsForDataSource } from '../ingestion/legistar.js'
 import { detectConflictsForAgendaItems } from '../detection/detectConflicts.js';
 import { detectAgendaConflictsSafely } from '../detection/detectAgendaConflictsSafely.js';
 import { prisma } from '../lib/prisma.js';
+import { runSyncJob } from './syncJobRun.js';
 
 const DEFAULT_LOOKBACK_DAYS = 30;
 
@@ -253,7 +254,7 @@ export async function runLegistarSyncForCity(sqlOrConfig, dataSource, agendaItem
   }
 }
 
-export async function runNightlyLegistarSync(options = {}) {
+async function performNightlyLegistarSync(options = {}) {
   const databaseUrl = getDatabaseUrl();
   if (!databaseUrl) {
     throw new Error('Missing DATABASE_URL (or DIRECT_URL) for nightly Legistar sync');
@@ -301,6 +302,7 @@ export async function runNightlyLegistarSync(options = {}) {
         if (prismaClient?.syncLog?.create) {
           syncLog = await prismaClient.syncLog.create({
             data: {
+              jobRunId: options.jobRunId ?? null,
               dataSourceId: source.id,
               sourceType: 'legistar',
               status: 'running',
@@ -380,6 +382,7 @@ export async function runNightlyLegistarSync(options = {}) {
           ]);
         }
       }
+
     }
 
     console.log(
@@ -390,4 +393,30 @@ export async function runNightlyLegistarSync(options = {}) {
   } finally {
     await sql.end();
   }
+}
+
+export async function runNightlyLegistarSync(options = {}) {
+  const prismaClient = options.prisma ?? prisma;
+  const outcome = await runSyncJob(
+    'legistar',
+    ({ runId }) => performNightlyLegistarSync({ ...options, jobRunId: runId }),
+    {
+      prismaClient,
+      hasErrors: (result) => result.failures > 0,
+    },
+  );
+  if (!outcome.skipped) return outcome.result;
+
+  return {
+    citiesProcessed: 0,
+    itemsFound: 0,
+    inserted: 0,
+    skipped: 0,
+    conflictsDetected: 0,
+    conflictCandidates: 0,
+    conflictsSkipped: 0,
+    detectionFailures: 0,
+    failures: 0,
+    skippedRun: true,
+  };
 }
