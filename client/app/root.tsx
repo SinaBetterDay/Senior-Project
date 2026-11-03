@@ -6,6 +6,7 @@ import {
   Scripts,
   ScrollRestoration,
   useLocation,
+  Navigate,
 } from "react-router";
 import { Toaster } from "react-hot-toast";
 
@@ -13,6 +14,7 @@ import type { Route } from "./+types/root";
 import "./app.css";
 import { SiteHeader } from "./components/SiteHeader";
 import { SiteFooter } from "./components/SiteFooter";
+import NotFound from "./components/NotFound";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -62,6 +64,8 @@ export default function App() {
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
+  if ((isRouteErrorResponse(error) || error instanceof Response) && error.status === 404) return <NotFound />;
+  if (isRouteErrorResponse(error) && [401, 403].includes(error.status)) return <Navigate to="/admin/login?reason=forbidden" replace />;
   let message = "Oops!";
   let details = "An unexpected error occurred.";
 

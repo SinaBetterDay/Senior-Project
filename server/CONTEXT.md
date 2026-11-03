@@ -21,6 +21,11 @@ Admin (Supabase JWT required): `/api/admin/session`, `/api/admin/sources`, `/api
 
 ## Data and service boundaries
 
+- Admin access uses active Owner/Admin database memberships. `FAIR_ADMIN_EMAIL`
+  only bootstraps the first verified owner; it is not an ongoing bypass.
+  User management: `src/lib/adminAccess.js`, `src/routes/admin/users.js`.
+  Handoff: [admin user management](../docs/admin-user-management.md).
+
 - Prisma owns application schema/migrations under `server/prisma/`; see `supabase/CONTEXT.md` for Supabase-only SQL.
 - Prisma uses camelCase fields. Raw SQL and Supabase JS use mapped snake_case table/column names.
 - Raw Form 700 workbooks are archived in Supabase Storage; privileged keys remain server-only.

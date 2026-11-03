@@ -76,7 +76,13 @@ outcomes, and legacy imports reconstructed from filing metadata.
 
 Admin sign-in validates the Supabase session against the protected server before
 entering the admin area. Ensure the browser and server use the same Supabase
-project and set `FAIR_ADMIN_EMAIL` on the server to the authorized account.
+project. `FAIR_ADMIN_EMAIL` bootstraps the first owner; database memberships
+authorize all later requests. Owners manage staff through `/admin/users`.
+See [admin user management and handoff](docs/admin-user-management.md).
+
+Unknown pages and missing public records show a dedicated 404 page. Visitors
+without permission for an admin page are redirected to `/admin/login`; temporary
+service outages remain retryable rather than being treated as denied access.
 
 Apply Prisma migrations and regenerate the client before using bulk imports:
 `cd server && npx prisma migrate deploy && npx prisma generate`.
@@ -182,7 +188,8 @@ npm run dev             # Vite dev server (default port in terminal output)
 | `DATABASE_URL` | Prisma / server | Supabase session pooler URI |
 | `DIRECT_URL` | Prisma Migrate | Direct Postgres connection |
 | `SUPABASE_URL` + `SUPABASE_SECRET_KEY` | server | URL and secret/service-role key; the secret key is server-only |
-| `FAIR_ADMIN_EMAIL` | server | Exact verified Supabase Auth email permitted to use admin endpoints; missing or non-matching values are rejected with 401 |
+| `FAIR_ADMIN_EMAIL` | server | One-time first-owner bootstrap email; unused once access is initialized |
+| `CLIENT_ORIGIN` | server | Exact frontend origin for invitation redirects; HTTPS in production |
 | `APIFY_ACTOR_ID` | server | e.g. `fppc-csus~fair-agenda-pdf-scraper` |
 | `GEMINI_API_KEY` | server | Entity resolution band only |
 | `RESEND_API_KEY` | server | Reserved for planned weekly admin digests; currently unused |
@@ -191,11 +198,11 @@ The frontend uses its own `client/.env` with `VITE_API_URL`, `VITE_SUPABASE_URL`
 
 ### Production admin verification
 
-Before release, set `FAIR_ADMIN_EMAIL` in the server deployment to the agreed
-Supabase Auth administrator email. Verify that account can call an admin route
-with a valid session, and verify a second valid Supabase account receives 401.
-Do not place the email, service-role key, or any production token in client
-environment variables.
+Before release, apply migrations and bootstrap the agreed verified owner account.
+Verify an active member can access admin routes, a valid nonmember receives 403,
+and only owners can manage users. Test real invitation and recovery emails using
+custom SMTP and allowed redirects. Follow the [handoff guide](docs/admin-user-management.md).
+Never place service-role keys or production tokens in client environment variables.
 
 ### _To complete in CSC 191_
 

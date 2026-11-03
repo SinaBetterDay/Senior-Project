@@ -10,6 +10,7 @@ describe("adminAuth", () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -75,5 +76,72 @@ describe("adminAuth", () => {
     const { adminFetch } = await import('./adminAuth');
     await expect(adminFetch('/api/admin/history')).rejects.toThrow('Authentication service unavailable');
     expect(window.localStorage.getItem('fair.admin.session')).not.toBeNull();
+  });
+  it('keeps an admin session when an owner-only endpoint is forbidden', async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { ...window.location, assign });
+    window.localStorage.setItem('fair.admin.session', JSON.stringify({ access_token: 'access', refresh_token: 'refresh', expires_at: Date.now() + 3600_000 }));
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ code: 'owner_required' }, { status: 403 }));
+    const { adminFetch } = await import('./adminAuth');
+    expect((await adminFetch('/api/admin/users')).status).toBe(403);
+    expect(window.localStorage.getItem('fair.admin.session')).not.toBeNull();
+    expect(assign).toHaveBeenCalledWith('/admin/login?reason=forbidden');
+  });
+  it('redirects a missing session to login before making an API request', async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { ...window.location, assign });
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    const { adminFetch, InvalidAdminSession } = await import('./adminAuth');
+    await expect(adminFetch('/api/admin/history')).rejects.toBeInstanceOf(InvalidAdminSession);
+    expect(assign).toHaveBeenCalledWith('/admin/login?reason=expired');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it('clears denied membership and redirects to login', async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { ...window.location, assign });
+    window.localStorage.setItem('fair.admin.session', JSON.stringify({ access_token: 'access', refresh_token: 'refresh', expires_at: Date.now() + 3600_000 }));
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ code: 'admin_forbidden' }, { status: 403 }));
+    const { adminFetch } = await import('./adminAuth');
+    expect((await adminFetch('/api/admin/history')).status).toBe(403);
+    expect(assign).toHaveBeenCalledWith('/admin/login?reason=forbidden');
+    expect(window.localStorage.getItem('fair.admin.session')).toBeNull();
+  });
+  it('sends missing admin resources to the 404 page without signing out', async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { pathname: '/admin/history', search: '', assign });
+    window.localStorage.setItem('fair.admin.session', JSON.stringify({ access_token: 'access', refresh_token: 'refresh', expires_at: Date.now() + 3600_000 }));
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({}, { status: 404 }));
+    const { adminFetch } = await import('./adminAuth');
+    expect((await adminFetch('/api/admin/history/missing')).status).toBe(404);
+    expect(assign).toHaveBeenCalledWith('/404');
+    expect(window.localStorage.getItem('fair.admin.session')).not.toBeNull();
+  });
+  it('scrubs invitation credentials from the URL after receiving a valid account link', async () => {
+    window.history.replaceState(null, '', '/admin/account?invitation=opaque#access_token=access&refresh_token=refresh&expires_in=3600&type=invite');
+    const { receiveAccountLink, getAdminSession } = await import('./adminAuth');
+    expect(await receiveAccountLink()).toBe('opaque');
+    expect(window.location.search).toBe(''); expect(window.location.hash).toBe('');
+    expect((await getAdminSession()).access_token).toBe('access');
+  });
+  it('rejects expired account links and scrubs their URL', async () => {
+    window.history.replaceState(null, '', '/admin/account#error_description=expired');
+    const { receiveAccountLink } = await import('./adminAuth');
+    await expect(receiveAccountLink()).rejects.toThrow('invalid or expired');
+    expect(window.location.hash).toBe('');
+  });
+  it('does not reuse an ordinary logged-in session to authorize password recovery', async () => {
+    window.history.replaceState(null, '', '/admin/account');
+    window.localStorage.setItem('fair.admin.session', JSON.stringify({ access_token: 'access', refresh_token: 'refresh', expires_at: Date.now() + 3600_000 }));
+    const { receiveAccountLink } = await import('./adminAuth');
+    await expect(receiveAccountLink()).rejects.toThrow('fresh invitation');
+  });
+  it('saves the password, accepts the matching invitation, then verifies membership', async () => {
+    window.localStorage.setItem('fair.admin.session', JSON.stringify({ access_token: 'access', refresh_token: 'refresh', expires_at: Date.now() + 3600_000 }));
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(Response.json({ id: 'user' })).mockResolvedValueOnce(Response.json({ data: { role: 'admin' } })).mockResolvedValueOnce(Response.json({ data: { role: 'admin' } }));
+    const { finishAccountSetup } = await import('./adminAuth');
+    await finishAccountSetup('a-long-password', 'opaque');
+    expect(fetchMock.mock.calls[0][0]).toContain('/auth/v1/user');
+    expect(fetchMock.mock.calls[1][0]).toContain('/api/admin/users/accept');
+    expect(fetchMock.mock.calls[2][0]).toContain('/api/admin/session');
   });
 });

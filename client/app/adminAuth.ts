@@ -5,7 +5,8 @@ export type AdminSession = SessionResponse & { expires_at: number };
 const SESSION_KEY = "fair.admin.session";
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 let refreshPromise: Promise<AdminSession> | null = null;
-class InvalidAdminSession extends Error {}
+export class InvalidAdminSession extends Error {}
+export class AdminAccessDenied extends Error {}
 
 function authConfig() {
   const url = import.meta.env.VITE_SUPABASE_URL;
@@ -41,7 +42,7 @@ async function refreshAdminSession(session: AdminSession) {
   if (!refreshPromise) refreshPromise = requestToken("refresh_token", { refresh_token: session.refresh_token }).finally(() => { refreshPromise = null; });
   return refreshPromise;
 }
-export async function getAdminSession(forceRefresh = false): Promise<AdminSession> { const session = readSession(); if (!session) throw new Error("Admin session is missing."); if (!forceRefresh && session.expires_at > Date.now() + 30_000) return session; return refreshAdminSession(session); }
+export async function getAdminSession(forceRefresh = false): Promise<AdminSession> { const session = readSession(); if (!session) throw new InvalidAdminSession("Admin session is missing."); if (!forceRefresh && session.expires_at > Date.now() + 30_000) return session; return refreshAdminSession(session); }
 export async function getAdminAccessToken() { return (await getAdminSession()).access_token; }
 export function clearAdminSession() { window.localStorage.removeItem(SESSION_KEY); window.sessionStorage.removeItem(SESSION_KEY); window.localStorage.removeItem("adminAccessToken"); window.localStorage.removeItem("isAdmin"); }
 export async function signOut() { const session = readSession(); clearAdminSession(); if (!session) return; try { const { url, anonKey } = authConfig(); await request(`${url}/auth/v1/logout`, { method: "POST", headers: { apikey: anonKey, Authorization: `Bearer ${session.access_token}` } }); } catch { /* best effort */ } }
@@ -66,9 +67,9 @@ export async function verifyAdminAccess() {
     if (error instanceof InvalidAdminSession) clearAdminSession();
     throw error;
   }
-  if (response.ok) return;
-  if (response.status === 401) { clearAdminSession(); throw new Error('Your admin session expired. Sign in again.'); }
-  if (response.status === 403) { clearAdminSession(); throw new Error(await responseMessage(response, 'This account is not authorized for FAIR administration.')); }
+  if (response.ok) return (await response.json()).data as { userId: string; email: string; role: 'owner' | 'admin' };
+  if (response.status === 401) { clearAdminSession(); throw new InvalidAdminSession('Your admin session expired. Sign in again.'); }
+  if (response.status === 403) { clearAdminSession(); throw new AdminAccessDenied(await responseMessage(response, 'This account is not authorized for FAIR administration.')); }
   throw new Error(await responseMessage(response, 'Admin authentication could not be verified. Please retry without signing in again.'));
 }
 
@@ -98,7 +99,63 @@ export async function adminFetch(path: string, init: RequestInit = {}) {
   }
   console.debug("[admin-auth] API response", { method, path, status: response.status, elapsedMs: Math.round(performance.now() - startedAt), requestId: response.headers.get("X-Request-ID") });
   if (response.status === 401) { clearAdminSession(); redirectToLogin('expired'); }
-  if (response.status === 403) { clearAdminSession(); redirectToLogin('forbidden'); }
+  if (response.status === 403) {
+    const payload = await response.clone().json().catch(() => ({}));
+    if (payload.code !== 'owner_required') clearAdminSession();
+    redirectToLogin('forbidden');
+  }
+  if (response.status === 404 && window.location.pathname !== '/404') window.location.assign('/404');
   return response;
 }
 export { API_URL };
+
+export async function requestPasswordReset(email: string) {
+  const { url, anonKey } = authConfig();
+  const redirect = new URL('/admin/account', window.location.origin);
+  const response = await request(`${url}/auth/v1/recover?redirect_to=${encodeURIComponent(redirect.href)}`, {
+    method: 'POST', headers: { apikey: anonKey, 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
+  });
+  if (!response.ok) throw new Error('Password reset could not be requested. Please retry later.');
+}
+
+// Invitation/recovery emails use Supabase's implicit redirect by default.
+// Custom token_hash templates are supported as well. Never retain tokens in URLs.
+export async function receiveAccountLink() {
+  const { url, anonKey } = authConfig();
+  const params = new URLSearchParams(window.location.search);
+  const hash = new URLSearchParams(window.location.hash.slice(1));
+  const invitation = params.get('invitation');
+  const tokenHash = params.get('token_hash');
+  const type = params.get('type');
+  const error = hash.get('error_description') ?? params.get('error_description');
+  window.history.replaceState(null, '', '/admin/account');
+  if (error) throw new Error('This account link is invalid or expired. Request a new invitation or password reset.');
+  if (hash.get('access_token') && hash.get('refresh_token')) {
+    const expires = Number(hash.get('expires_in'));
+    if (!Number.isFinite(expires) || expires <= 0) throw new Error('Invalid account link.');
+    storeSession({ access_token: hash.get('access_token')!, refresh_token: hash.get('refresh_token')!, expires_in: expires });
+  } else if (tokenHash && ['invite', 'recovery'].includes(type ?? '')) {
+    const response = await request(`${url}/auth/v1/verify`, { method: 'POST', headers: { apikey: anonKey, 'Content-Type': 'application/json' }, body: JSON.stringify({ token_hash: tokenHash, type }) });
+    const result = await response.json();
+    if (!response.ok || !result.access_token || !result.refresh_token || !Number.isFinite(result.expires_in)) throw new Error('This account link is invalid or expired. Request a new link.');
+    storeSession(result);
+  } else {
+    throw new Error('Open a fresh invitation or password-reset email to set your password.');
+  }
+  return invitation;
+}
+
+export async function finishAccountSetup(password: string, invitation: string | null) {
+  const { url, anonKey } = authConfig();
+  const session = await getAdminSession();
+  const response = await request(`${url}/auth/v1/user`, { method: 'PUT', headers: { apikey: anonKey, Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(safeMessage(payload.msg ?? payload.message, 'Password could not be updated. Request a new account link.'));
+  }
+  if (invitation) {
+    const accepted = await authorizedRequest('/api/admin/users/accept', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: invitation }) });
+    if (!accepted.ok) throw new Error(await responseMessage(accepted, 'Your password was saved, but access could not be activated. Ask an owner to resend the invitation.'));
+  }
+  await verifyAdminAccess();
+}
