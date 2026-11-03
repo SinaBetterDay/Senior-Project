@@ -21,6 +21,37 @@ async function readMigrations() {
 }
 
 describe('Prisma migration history', () => {
+  it('allows the agenda source URL migration to follow ingestion metrics', async () => {
+    const migrations = await readMigrations();
+    const metricsIndex = migrations.findIndex(
+      ({ name }) => name === '20261021000000_apify_ingestion_metrics',
+    );
+    const sourceUrlIndex = migrations.findIndex(
+      ({ name }) => name === '20261022150000_add_agenda_source_url',
+    );
+
+    expect(metricsIndex).toBeGreaterThanOrEqual(0);
+    expect(sourceUrlIndex).toBeGreaterThan(metricsIndex);
+    expect(migrations[metricsIndex].sql).toMatch(
+      /ALTER TABLE\s+"agenda_items"\s+ADD COLUMN\s+"source_url"\s+TEXT/i,
+    );
+    expect(migrations[sourceUrlIndex].sql).toMatch(
+      /ALTER TABLE\s+"agenda_items"\s+ADD COLUMN IF NOT EXISTS\s+"source_url"\s+TEXT/i,
+    );
+  });
+
+  it('backfills only missing source URLs from legacy Apify links', async () => {
+    const migrations = await readMigrations();
+    const sourceUrlMigration = migrations.find(
+      ({ name }) => name === '20261022150000_add_agenda_source_url',
+    );
+
+    expect(sourceUrlMigration).toBeDefined();
+    expect(sourceUrlMigration.sql).toMatch(
+      /UPDATE\s+"agenda_items"\s+SET\s+"source_url"\s*=\s*"item_text"\s+WHERE\s+"source_type"\s*=\s*'apify'\s+AND\s+"source_url"\s+IS NULL\s+AND\s+"item_text"\s*~\s*'\^https\?:\/\/'\s*;/i,
+    );
+  });
+
   it('creates conflict dependencies before creating the conflicts table', async () => {
     const migrations = await readMigrations();
     const baselineIndex = migrations.findIndex(({ name }) => name === '20260903000000_schema_v2');
