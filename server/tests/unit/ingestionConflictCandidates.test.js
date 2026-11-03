@@ -7,6 +7,7 @@ const testState = vi.hoisted(() => {
     agendaItems: [],
     conflicts: [],
     syncLogs: [],
+    syncJobRuns: [],
     scheduleCde: [{
       politicianId: 'politician-1',
       sourceName: 'Acme Builders',
@@ -21,6 +22,7 @@ const testState = vi.hoisted(() => {
   };
   let agendaId = 0;
   let syncLogId = 0;
+  let syncJobRunId = 0;
 
   const prisma = {
     jurisdiction: { findMany: vi.fn(async () => [{ id: 'test-city', name: 'Test City' }]) },
@@ -123,6 +125,42 @@ const testState = vi.hoisted(() => {
         Object.assign(row, data);
         return row;
       }),
+      updateMany: vi.fn(async ({ where, data }) => {
+        const selected = state.syncLogs.filter((row) => (
+          (!where.jobRunId || row.jobRunId === where.jobRunId)
+          && (!where.status || row.status === where.status)
+        ));
+        selected.forEach((row) => Object.assign(row, data));
+        return { count: selected.length };
+      }),
+    },
+    syncJobRun: {
+      findMany: vi.fn(async ({ where }) => state.syncJobRuns
+        .filter((run) => (
+          (!where.jobKey || run.jobKey === where.jobKey)
+          && run.status === where.status
+          && run.heartbeatAt < where.heartbeatAt.lt
+        ))
+        .map(({ id }) => ({ id }))),
+      create: vi.fn(async ({ data }) => {
+        const row = { id: `job-run-${++syncJobRunId}`, ...data };
+        state.syncJobRuns.push(row);
+        return { id: row.id };
+      }),
+      updateMany: vi.fn(async ({ where, data }) => {
+        const selected = state.syncJobRuns.filter((run) => (
+          run.id === where.id
+          && run.status === where.status
+          && run.heartbeatAt < where.heartbeatAt.lt
+        ));
+        selected.forEach((run) => Object.assign(run, data));
+        return { count: selected.length };
+      }),
+      update: vi.fn(async ({ where, data }) => {
+        const row = state.syncJobRuns.find((run) => run.id === where.id);
+        Object.assign(row, data);
+        return row;
+      }),
     },
     $transaction: vi.fn(async (operations) => typeof operations === 'function' ? operations(prisma) : Promise.all(operations)),
   };
@@ -206,6 +244,7 @@ describe('agenda ingestion creates visible conflict candidates from matching dis
     testState.state.agendaItems.length = 0;
     testState.state.conflicts.length = 0;
     testState.state.syncLogs.length = 0;
+    testState.state.syncJobRuns.length = 0;
     testState.state.scheduleCde = [{
       id: 'disclosure-1', filingId: 'filing-1', filingYear: 2025, politicianJurisdictionId: 'test-city',
       politicianId: 'politician-1',

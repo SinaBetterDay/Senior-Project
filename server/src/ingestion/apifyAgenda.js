@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { upsertAgendaItems } from './upsertAgendaItems.js';
 import { detectConflictsForAgendaItems } from '../detection/detectConflicts.js';
 import { detectAgendaConflictsSafely } from '../detection/detectAgendaConflictsSafely.js';
+import { runSyncJob } from '../jobs/syncJobRun.js';
 
 const PDF_DOWNLOAD_TIMEOUT_MS = 30_000;
 const MAX_PDF_BYTES = 20 * 1024 * 1024;
@@ -197,10 +198,11 @@ async function updateRunRecords(prismaClient, source, syncLogId, counts, errors)
   ]);
 }
 
-export async function ingestApifyAgendaItems({
+async function performApifyAgendaIngestion({
   items,
   source: sourceInput,
   syncLogId = null,
+  jobRunId = null,
   prismaClient = prisma,
   parsePdf = parsePdfAgenda,
   fetchImpl = fetch,
@@ -216,8 +218,19 @@ export async function ingestApifyAgendaItems({
   const run = syncLogId
     ? { id: syncLogId }
     : await prismaClient.syncLog.create({
-      data: { dataSourceId: source.id, sourceType: 'apify', status: 'running' },
+      data: {
+        jobRunId,
+        dataSourceId: source.id,
+        sourceType: 'apify',
+        status: 'running',
+      },
     });
+  if (syncLogId && jobRunId) {
+    await prismaClient.syncLog.update({
+      where: { id: syncLogId },
+      data: { jobRunId },
+    });
+  }
 
   const counts = {
     documentsFound: items.length,
@@ -279,5 +292,56 @@ export async function ingestApifyAgendaItems({
     cityName: source.cityName,
     ...counts,
     errors,
+  };
+}
+
+export async function ingestApifyAgendaItems(options = {}) {
+  const {
+    items,
+    source: sourceInput,
+    prismaClient = prisma,
+  } = options;
+  if (!Array.isArray(items)) throw new Error('Apify dataset results must be an array');
+  if (!sourceInput?.cityName) throw new Error('An Apify data source city name is required');
+
+  const source = sourceInput.id
+    ? sourceInput
+    : await findOrCreateDataSource(prismaClient, sourceInput.cityName, sourceInput.apifyActorId);
+  if (options.skipJobLock) {
+    return performApifyAgendaIngestion({
+      ...options,
+      source,
+      prismaClient,
+      jobRunId: options.jobRunId ?? null,
+    });
+  }
+
+  const outcome = await runSyncJob(
+    `apify-city:${source.id}`,
+    ({ runId }) => performApifyAgendaIngestion({
+      ...options,
+      source,
+      jobRunId: runId,
+    }),
+    {
+      prismaClient,
+      hasErrors: (result) => result.errors.length > 0,
+    },
+  );
+  if (!outcome.skipped) return outcome.result;
+
+  return {
+    cityName: source.cityName,
+    documentsFound: 0,
+    pdfsFetched: 0,
+    documentsSkipped: 0,
+    itemsInserted: 0,
+    itemsSkipped: 0,
+    conflictCandidates: 0,
+    conflictsDetected: 0,
+    conflictsSkipped: 0,
+    detectionErrors: [],
+    errors: [],
+    skippedRun: true,
   };
 }

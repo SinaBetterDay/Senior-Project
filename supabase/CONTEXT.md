@@ -49,6 +49,7 @@ The team decision, applied in `server/prisma/schema.prisma`:
 | `ScheduleA2BusinessPosition` | `schedule_a2_business_positions` |
 | `DataSource` | `data_sources` |
 | `SyncLog` | `sync_logs` |
+| `SyncJobRun` | `sync_job_runs` |
 
 ## Running migrations
 

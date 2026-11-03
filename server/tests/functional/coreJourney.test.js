@@ -200,7 +200,11 @@ describeFunctional('SH-328 core user journey', () => {
   it('ingests agenda data before a disclosure, uploads, detects, reviews, redetects, and displays the result', async () => {
     const legistar = await runLegistarSyncForCity(
       sql,
-      { id: 'functional-legistar', city_name: JURISDICTION_NAME, legistar_base_url: 'https://legistar.test' },
+      {
+        id: 'functional-legistar',
+        city_name: JURISDICTION_NAME,
+        legistar_base_url: 'https://webapi.legistar.com/v1/sonoma-functional',
+      },
       new Set([
         'id', 'legistar_item_id', 'source_type', 'legistar_event_id', 'legistar_matter_id',
         'city_name', 'title', 'agenda_number', 'body_name', 'meeting_date',

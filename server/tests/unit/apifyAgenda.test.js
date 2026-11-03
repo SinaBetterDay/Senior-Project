@@ -18,7 +18,17 @@ let detect;
 beforeEach(() => {
   prismaClient = {
     agendaItem: { findUnique: vi.fn().mockResolvedValue(null), upsert: vi.fn().mockResolvedValue({ id: 'agenda-1' }) },
-    syncLog: { create: vi.fn(), update: vi.fn().mockResolvedValue({}) },
+    syncLog: {
+      create: vi.fn(),
+      update: vi.fn().mockResolvedValue({}),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
+    syncJobRun: {
+      findMany: vi.fn().mockResolvedValue([]),
+      create: vi.fn().mockResolvedValue({ id: 'job-run-1' }),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      update: vi.fn().mockResolvedValue({}),
+    },
     dataSource: { update: vi.fn().mockResolvedValue({}) },
     $transaction: vi.fn(async (operation) => (
       typeof operation === 'function' ? operation(prismaClient) : Promise.all(operation)

@@ -5,6 +5,7 @@ import { ingestApifyAgendaItems, downloadPdf } from '../ingestion/apifyAgenda.js
 import { parsePdfAgenda } from '../ingestion/pdfParser.js';
 import { prisma } from '../lib/prisma.js';
 import { detectConflictsForAgendaItems } from '../detection/detectConflicts.js';
+import { runSyncJob } from './syncJobRun.js';
 
 const DEFAULT_LOOKBACK_DAYS = 14;
 
@@ -19,9 +20,10 @@ function normalizeCityName(value) {
 export { downloadPdf };
 
 /** Run the full Apify → PDF → agenda_items ingestion pipeline. */
-export async function runApifyAgendaScrape({
+async function performApifyAgendaScrape({
   lookbackDays = DEFAULT_LOOKBACK_DAYS,
   city = null,
+  jobRunId = null,
   prismaClient = prisma,
   scrapeAgendaPDFs,
   parsePdf = parsePdfAgenda,
@@ -56,15 +58,35 @@ export async function runApifyAgendaScrape({
 
   const cities = [];
   for (const [cityName, items] of byCity) {
-    cities.push(await ingestApifyAgendaItems({
-      items,
-      source: { cityName, apifyActorId: process.env.APIFY_ACTOR_ID ?? null },
-      prismaClient,
-      ...(parsePdf ? { parsePdf } : {}),
-      fetchImpl,
-      detect,
-      log,
-    }));
+    try {
+      cities.push(await ingestApifyAgendaItems({
+        items,
+        source: { cityName, apifyActorId: process.env.APIFY_ACTOR_ID ?? null },
+        prismaClient,
+        jobRunId,
+        ...(parsePdf ? { parsePdf } : {}),
+        fetchImpl,
+        detect,
+        log,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log(`[apify] city="${cityName}" failed: ${message}`);
+      cities.push({
+        cityName,
+        documentsFound: items.length,
+        pdfsFetched: 0,
+        documentsSkipped: items.length,
+        itemsInserted: 0,
+        itemsSkipped: 0,
+        conflictCandidates: 0,
+        conflictsDetected: 0,
+        conflictsSkipped: 0,
+        detectionFailures: 0,
+        detectionErrors: [],
+        errors: [{ message }],
+      });
+    }
   }
 
   const totals = cities.reduce((result, summary) => ({
@@ -105,6 +127,38 @@ export async function runApifyAgendaScrape({
   return { ...totals, cities };
 }
 
+export async function runApifyAgendaScrape(options = {}) {
+  const prismaClient = options.prismaClient ?? prisma;
+  const outcome = await runSyncJob(
+    'apify',
+    ({ runId }) => performApifyAgendaScrape({ ...options, jobRunId: runId }),
+    {
+      prismaClient,
+      hasErrors: (result) => result.errors > 0,
+    },
+  );
+  if (!outcome.skipped) return outcome.result;
+
+  return {
+    citiesProcessed: 0,
+    documentsFound: 0,
+    pdfsFetched: 0,
+    inserted: 0,
+    skipped: 0,
+    documentsSkipped: 0,
+    itemsInserted: 0,
+    itemsSkipped: 0,
+    conflictCandidates: 0,
+    conflictsDetected: 0,
+    conflictsSkipped: 0,
+    detectionFailures: 0,
+    detectionErrors: [],
+    errors: 0,
+    skippedRun: true,
+    cities: [],
+  };
+}
+
 function readCityArgument(argv) {
   const index = argv.indexOf('--city');
   return index >= 0 ? argv[index + 1] ?? null : null;
@@ -113,7 +167,7 @@ function readCityArgument(argv) {
 export async function runApifyAgendaCli({ argv = process.argv.slice(2), run = runApifyAgendaScrape } = {}) {
   const result = await run({ city: readCityArgument(argv) });
   console.log(JSON.stringify(result, null, 2));
-  if (result.errors > 0) process.exitCode = 1;
+  if (result.errors > 0 || result.skippedRun) process.exitCode = 1;
   return result;
 }
 

@@ -492,11 +492,14 @@ model DataSource {
 
 model SyncLog {
   id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  jobRunId        String?     @map("job_run_id") @db.Uuid
+  jobRun          SyncJobRun? @relation(fields: [jobRunId], references: [id], onDelete: SetNull)
   dataSourceId    String?     @map("data_source_id") @db.Uuid
   dataSource      DataSource? @relation(fields: [dataSourceId], references: [id], onDelete: SetNull)
   sourceType      String?     @map("source_type")
   status          String      @default("running")
   startedAt       DateTime    @default(now()) @map("started_at")
+  heartbeatAt     DateTime    @default(now()) @map("heartbeat_at") @db.Timestamptz(3)
   completedAt     DateTime?   @map("completed_at")
   itemsFound      Int         @default(0) @map("items_found")
   documentsFound  Int         @default(0) @map("documents_found")
@@ -512,5 +515,20 @@ model SyncLog {
 
   @@index([dataSourceId, startedAt], map: "sync_logs_data_source_id_started_at_idx")
   @@index([startedAt], map: "sync_logs_started_at_idx")
+  @@index([jobRunId], map: "sync_logs_job_run_id_idx")
   @@map("sync_logs")
+}
+
+model SyncJobRun {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  jobKey      String    @map("job_key")
+  status      String    @default("running")
+  startedAt   DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)
+  heartbeatAt DateTime  @default(now()) @map("heartbeat_at") @db.Timestamptz(3)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+  error       String?
+  syncLogs    SyncLog[]
+
+  @@index([jobKey, status, heartbeatAt], map: "sync_job_runs_key_status_heartbeat_idx")
+  @@map("sync_job_runs")
 }

@@ -14,6 +14,7 @@ import {
   detectAgendaConflictsSafely,
   getRetryableAgendaItemIds,
 } from '../../detection/detectAgendaConflictsSafely.js';
+import { runSyncJob } from '../../jobs/syncJobRun.js';
 
 const router = express.Router();
 
@@ -164,7 +165,7 @@ async function runLegistarSource(source, options = {}) {
   };
 }
 
-async function runApifySource(source, syncLogId) {
+async function runApifySource(source, syncLogId, jobRunId) {
   if (!process.env.APIFY_TOKEN) throw new Error('Apify is not configured on the server (APIFY_TOKEN is missing).');
   const actorId = source.apifyActorId ?? process.env.APIFY_ACTOR_ID;
   if (!actorId) throw new Error('Apify is not configured on the server (APIFY_ACTOR_ID is missing).');
@@ -179,15 +180,28 @@ async function runApifySource(source, syncLogId) {
     items.push(...(page.items ?? []));
     if ((page.items?.length ?? 0) < 1000) break;
   }
-  return ingestApifyAgendaItems({ items, source: { ...source, apifyActorId: actorId }, syncLogId, log: console.log });
+  const result = await ingestApifyAgendaItems({
+    items,
+    source: { ...source, apifyActorId: actorId },
+    syncLogId,
+    jobRunId,
+    skipJobLock: true,
+    log: console.log,
+  });
+  if (result.skippedRun) throw new Error('Another sync for this city is already active.');
+  return result;
 }
 
-async function executeSourceSync(source, syncLogId, options = {}) {
+async function performSourceSync(source, syncLogId, options = {}) {
   try {
+    await prisma.syncLog.update({
+      where: { id: syncLogId },
+      data: { jobRunId: options.jobRunId },
+    });
     // Shared Apify ingestion persists document metrics, errors, and final status.
     if (source.sourceType.toLowerCase() !== 'legistar') {
-      await runApifySource(source, syncLogId);
-      return;
+      const result = await runApifySource(source, syncLogId, options.jobRunId);
+      return { failed: result.errors?.length > 0 };
     }
     const result = await runLegistarSource(source, options);
     const completedAt = new Date();
@@ -212,6 +226,7 @@ async function executeSourceSync(source, syncLogId, options = {}) {
         data: { lastSyncedAt: completedAt, lastError: null },
       }),
     ]);
+    return { failed: false };
   } catch (error) {
     const completedAt = new Date();
     await prisma.$transaction([
@@ -235,7 +250,40 @@ async function executeSourceSync(source, syncLogId, options = {}) {
         },
       }),
     ]);
+    return { failed: true };
   }
+}
+
+async function executeSourceSync(source, syncLogId, options = {}) {
+  const isLegistar = source.sourceType.toLowerCase() === 'legistar';
+  const jobKey = isLegistar ? 'legistar' : `apify-city:${source.id}`;
+  const outcome = await runSyncJob(
+    jobKey,
+    ({ runId }) => performSourceSync(source, syncLogId, { ...options, jobRunId: runId }),
+    {
+      prismaClient: prisma,
+      hasErrors: (result) => result.failed,
+    },
+  );
+  if (!outcome.skipped) return outcome.result;
+
+  const message = 'Another sync for this source is already active; this request was skipped.';
+  const completedAt = new Date();
+  await prisma.$transaction([
+    prisma.syncLog.update({
+      where: { id: syncLogId },
+      data: {
+        status: 'failed',
+        completedAt,
+        errors: [{ message }],
+      },
+    }),
+    prisma.dataSource.update({
+      where: { id: source.id },
+      data: { lastError: message },
+    }),
+  ]);
+  return { failed: true, skipped: true };
 }
 
 router.get('/', async (req, res) => {
