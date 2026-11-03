@@ -8,7 +8,12 @@ import * as XLSX from 'xlsx';
 
 vi.mock("../../src/lib/auth.js", () => {
   const requireAdmin = vi.fn((_req, _res, next) => next());
-  return { requireAdmin, default: requireAdmin };
+  return {
+    requireAdmin,
+    default: requireAdmin,
+    requireAuthenticated: vi.fn((_req, _res, next) => next()),
+    requireOwner: vi.fn((_req, _res, next) => next()),
+  };
 });
 
 vi.mock("../../src/lib/prisma.js", () => {
@@ -48,6 +53,7 @@ vi.mock("../../src/utils/findOrCreatePolitician.js", () => ({
 
 vi.mock("../../src/detection/detectionRuns.js", () => ({
   queueDetectionRun: vi.fn(),
+}));
 vi.mock("../../src/detection/redetectDisclosure.js", () => ({
   redetectDisclosureAgendaItems: vi.fn(),
 }));

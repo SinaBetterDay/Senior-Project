@@ -6,10 +6,9 @@ import { prisma } from '../../lib/prisma.js';
 import { fetchLegistarAgendaItemsForDataSource } from '../../ingestion/legistar.js';
 import { legistarItemKey } from '../../ingestion/legistarIdentity.js';
 import { getSyntheticConflictStatus, runSyntheticConflictCheck, removeSyntheticConflictCheck } from '../../detection/syntheticConflictCheck.js';
-import { parsePdfAgenda } from '../../ingestion/pdfParser.js';
+import { ingestApifyAgendaItems } from '../../ingestion/apifyAgenda.js';
 import { upsertAgendaItems } from '../../ingestion/upsertAgendaItems.js';
-import { apifySourceDiagnostic, buildApifyActorInput } from '../../ingestion/apifyActorInput.js';
-import { downloadPdf } from '../../jobs/runApifyAgendaScrape.js';
+import { buildApifyActorInput } from '../../ingestion/apifyActorInput.js';
 import { detectConflictsForAgendaItems } from '../../detection/detectConflicts.js';
 import {
   detectAgendaConflictsSafely,
@@ -171,10 +170,7 @@ async function runApifySource(source, syncLogId) {
   if (!actorId) throw new Error('Apify is not configured on the server (APIFY_ACTOR_ID is missing).');
 
   const client = new ApifyClient({ token: process.env.APIFY_TOKEN });
-  const run = await client.actor(actorId).call({
-    cityName: source.cityName,
-    ...(source.startUrl ? { startUrl: source.startUrl } : {}),
-  }, { timeout: 600 });
+  const run = await client.actor(actorId).call(buildApifyActorInput(source), { timeout: 600 });
   if (run.status && run.status !== 'SUCCEEDED') throw new Error(`Actor ${run.status}: ${run.statusMessage || 'Check the Apify run log.'}`);
   if (!run.defaultDatasetId) throw new Error('Apify actor run did not return a dataset ID.');
   const items = [];
@@ -188,9 +184,12 @@ async function runApifySource(source, syncLogId) {
 
 async function executeSourceSync(source, syncLogId, options = {}) {
   try {
-    const result = source.sourceType.toLowerCase() === 'legistar'
-      ? await runLegistarSource(source, options)
-      : await runApifySource(source);
+    // Shared Apify ingestion persists document metrics, errors, and final status.
+    if (source.sourceType.toLowerCase() !== 'legistar') {
+      await runApifySource(source, syncLogId);
+      return;
+    }
+    const result = await runLegistarSource(source, options);
     const completedAt = new Date();
 
     await prisma.$transaction([

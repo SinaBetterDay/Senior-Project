@@ -17,13 +17,8 @@ vi.mock('../../src/ingestion/legistarApi.js', () => ({
   getAgendaItems: vi.fn(),
   getVotes: vi.fn(),
 }));
-vi.mock('../../src/ingestion/pdfParser.js', () => ({
-  parsePdfAgenda: vi.fn(async (_buffer, cityId, meetingDate) => [{
-    cityId, meetingDate, itemNumber: '1', itemText: 'Approve a public works contract.', sourceType: 'pdf',
-  }]),
-}));
-vi.mock('../../src/jobs/runApifyAgendaScrape.js', () => ({
-  downloadPdf: vi.fn(async () => Buffer.from('pdf')),
+vi.mock('../../src/ingestion/apifyAgenda.js', () => ({
+  ingestApifyAgendaItems: vi.fn(),
 }));
 vi.mock('../../src/detection/detectConflicts.js', () => ({
   detectConflictsForAgendaItems: vi.fn(async () => ({ inserted: 1, skipped: 0, totalCandidates: 1 })),
@@ -54,6 +49,7 @@ const validApifySource = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  detectConflictsForAgendaItems.mockResolvedValue({ inserted: 1, skipped: 0, totalCandidates: 1 });
   vi.stubGlobal('fetch', vi.fn());
   prisma.dataSource.create.mockImplementation(async ({ data }) => ({ id: 'source-1', ...data }));
   prisma.dataSource.update.mockImplementation(async ({ where, data }) => ({ id: where.id, ...data }));
@@ -327,6 +323,7 @@ describe('on-demand source sync', () => {
       }),
     })));
     expect(prisma.agendaItem.createMany).not.toHaveBeenCalled();
+    expect(ingestApifyAgendaItems).not.toHaveBeenCalled();
   });
 
   it('starts a Legistar ingestion and returns a running sync-log ID', async () => {
@@ -477,7 +474,7 @@ describe('on-demand source sync', () => {
     }));
   });
 
-  it('runs the configured Apify actor and persists its agenda items', async () => {
+  it('passes actor documents and the existing sync log to shared Apify ingestion', async () => {
     vi.stubEnv('APIFY_TOKEN', 'account-token');
     prisma.dataSource.findUnique.mockResolvedValue({
       id: 'source-1',
@@ -505,19 +502,52 @@ describe('on-demand source sync', () => {
     expect(actorCall).toHaveBeenCalledWith({
       cityName: 'Elk Grove', startUrl: 'https://city.gov/agendas', maxDepth: 2, maxPages: 200, sameDomainOnly: true,
     }, { timeout: 600 });
-    await vi.waitFor(() => expect(prisma.agendaItem.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      create: expect.objectContaining({
-        sourceType: 'pdf',
-        cityId: 'source-1',
-        cityName: 'Elk Grove',
-        title: 'Council agenda',
-        itemText: 'Approve a public works contract.',
-        sourceUrl: 'https://city.gov/agenda.pdf',
-      }),
-    })));
-    await vi.waitFor(() => expect(detectConflictsForAgendaItems).toHaveBeenCalledWith(
-      ['agenda-1'],
-      { prisma },
-    ));
+    await vi.waitFor(() => expect(ingestApifyAgendaItems).toHaveBeenCalledWith({
+      items: [{ pdf_url: 'https://city.gov/agenda.pdf', title: 'Council agenda', meeting_date: '2026-10-01' }],
+      source: {
+        id: 'source-1', cityName: 'Elk Grove', sourceType: 'apify',
+        apifyActorId: 'fair/agenda-scraper', startUrl: 'https://city.gov/agendas',
+      },
+      syncLogId: 'sync-1',
+      log: expect.any(Function),
+    }));
+    // The ingestion service owns final status and metrics, including skipped PDFs.
+    expect(prisma.syncLog.update).not.toHaveBeenCalled();
+    expect(prisma.dataSource.update).not.toHaveBeenCalled();
+    expect(prisma.agendaItem.upsert).not.toHaveBeenCalled();
+  });
+
+  it('collects every dataset page and records shared ingestion failures on the original run', async () => {
+    vi.stubEnv('APIFY_TOKEN', 'account-token');
+    prisma.dataSource.findUnique.mockResolvedValue({
+      id: 'source-1', cityName: 'Elk Grove', sourceType: 'apify',
+      apifyActorId: 'fair/agenda-scraper', startUrl: 'https://city.gov/agendas',
+    });
+    const firstPage = Array.from({ length: 1000 }, (_, index) => ({ pdf_url: `https://city.gov/${index}.pdf` }));
+    const lastPage = [{ pdf_url: 'https://city.gov/last.pdf' }];
+    const listItems = vi.fn()
+      .mockResolvedValueOnce({ items: firstPage })
+      .mockResolvedValueOnce({ items: lastPage });
+    ApifyClient.mockImplementation(function () {
+      return {
+        actor: () => ({ call: async () => ({ status: 'SUCCEEDED', defaultDatasetId: 'dataset-1' }) }),
+        dataset: () => ({ listItems }),
+      };
+    });
+    ingestApifyAgendaItems.mockRejectedValueOnce(new Error('Database unavailable'));
+
+    const response = await request(app).post('/api/admin/sources/source-1/sync');
+
+    expect(response.status).toBe(202);
+    await vi.waitFor(() => expect(prisma.syncLog.update).toHaveBeenCalledWith({
+      where: { id: 'sync-1' },
+      data: expect.objectContaining({ status: 'failed', errors: [{ message: 'Database unavailable' }] }),
+    }));
+    expect(listItems).toHaveBeenNthCalledWith(1, { limit: 1000, offset: 0 });
+    expect(listItems).toHaveBeenNthCalledWith(2, { limit: 1000, offset: 1000 });
+    expect(ingestApifyAgendaItems).toHaveBeenCalledWith(expect.objectContaining({
+      items: [...firstPage, ...lastPage], syncLogId: 'sync-1',
+    }));
+    expect(prisma.syncLog.create).toHaveBeenCalledTimes(1);
   });
 });

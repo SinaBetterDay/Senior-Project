@@ -3,6 +3,8 @@ import request from "supertest";
 
 vi.mock("../../src/lib/auth.js", () => ({
   requireAdmin: vi.fn((_req, _res, next) => next()),
+  requireAuthenticated: vi.fn((_req, _res, next) => next()),
+  requireOwner: vi.fn((_req, _res, next) => next()),
 }));
 
 vi.mock("../../src/lib/prisma.js", () => ({
