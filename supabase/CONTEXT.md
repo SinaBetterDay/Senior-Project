@@ -21,6 +21,9 @@ The Supabase migration `20261102190000_enable_application_table_rls.sql` enables
 RLS on every Prisma-mapped application table and revokes direct table privileges
 from `PUBLIC`, `anon`, and `authenticated`. It intentionally creates no table
 policies, so browser clients cannot query or mutate application tables directly.
+`sync_job_runs` is also protected by its Prisma migration, because the application
+schema migration may run after Supabase-specific migrations. Its Supabase RLS
+migration checks that the table exists before applying the same restrictions.
 This does not restrict requests handled by the privileged server-side database
 connection or Supabase service-role client. Keep those credentials server-only.
 

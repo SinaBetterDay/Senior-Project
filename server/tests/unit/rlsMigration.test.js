@@ -8,6 +8,10 @@ const repositoryRoot = path.resolve(
   '../../../',
 );
 const schemaPath = path.join(repositoryRoot, 'server/prisma/schema.prisma');
+const syncJobRunPrismaMigrationPath = path.join(
+  repositoryRoot,
+  'server/prisma/migrations/20261103000000_persisted_sync_job_runs/migration.sql',
+);
 const migrationPaths = [
   'supabase/migrations/20261102190000_enable_application_table_rls.sql',
   'supabase/migrations/20261103010000_sync_job_runs_rls.sql',
@@ -43,5 +47,30 @@ describe('Supabase RLS migration', () => {
     expect(readSqlTables(migration, 'anon')).toEqual(prismaTables);
     expect(readSqlTables(migration, 'authenticated')).toEqual(prismaTables);
     expect(migration).not.toMatch(/\bCREATE POLICY\b/i);
+  });
+
+  it('lets Supabase migrations run before Prisma creates sync_job_runs', async () => {
+    const migration = await readFile(migrationPaths[1], 'utf8');
+
+    expect(migration).toMatch(
+      /IF\s+to_regclass\('public\.sync_job_runs'\)\s+IS\s+NOT\s+NULL\s+THEN[\s\S]*ALTER TABLE public\."sync_job_runs" ENABLE ROW LEVEL SECURITY;/i,
+    );
+  });
+
+  it('enables default-deny RLS when Prisma creates sync_job_runs', async () => {
+    const migration = await readFile(syncJobRunPrismaMigrationPath, 'utf8');
+
+    expect(migration).toMatch(
+      /ALTER TABLE "sync_job_runs" ENABLE ROW LEVEL SECURITY;/i,
+    );
+    expect(migration).toMatch(
+      /REVOKE ALL ON TABLE "sync_job_runs" FROM PUBLIC;/i,
+    );
+    expect(migration).toMatch(
+      /REVOKE ALL ON TABLE "sync_job_runs" FROM anon;/i,
+    );
+    expect(migration).toMatch(
+      /REVOKE ALL ON TABLE "sync_job_runs" FROM authenticated;/i,
+    );
   });
 });
