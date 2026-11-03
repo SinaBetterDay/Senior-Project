@@ -178,7 +178,7 @@ router.get("/export", async (req, res, next) => {
     let cursor;
 
     const getBatch = () => prisma.conflict.findMany({
-      where: { politician: { isDemo: false }, agendaItem: { isDemo: false } },
+      where: { politician: { isDemo: false }, agendaItem: { isDemo: false }, OR: [{ eligibilityStatus: null }, { eligibilityStatus: "active" }] },
       include: conflictInclude,
       orderBy: { id: "asc" },
       take: batchSize,
@@ -239,7 +239,7 @@ router.get("/:id", async (req, res, next) => {
 
   try {
     const conflict = await prisma.conflict.findUnique({
-      where: { id: req.params.id, politician: { isDemo: false }, agendaItem: { isDemo: false } },
+      where: { id: req.params.id, politician: { isDemo: false }, agendaItem: { isDemo: false }, OR: [{ eligibilityStatus: null }, { eligibilityStatus: "active" }] },
       include: {
         politician: true,
         agendaItem: { include: { meeting: { include: { jurisdiction: true } } } },

@@ -4,6 +4,8 @@ const OFFICIAL_SLUG = 'fair-demo-fictional-official-001';
 const VENDOR = 'FAIR SYNTHETIC VENDOR ALPHA 001';
 const MATCH_ID = 'fair-demo:matching-agenda-001';
 const CONTROL_ID = 'fair-demo:control-agenda-001';
+const DEMO_JURISDICTION_ID = 'fa170000-0000-4000-8000-000000000001';
+const DEMO_CITY = 'FAIR DEMO — Fictional County';
 
 export async function getSyntheticConflictStatus(prisma) {
   const politician = await prisma.politician.findUnique({ where: { slug: OFFICIAL_SLUG } });
@@ -41,11 +43,20 @@ export async function runSyntheticConflictCheck(prisma) {
     if ((existingOfficial && !existingOfficial.isDemo) || existingItems.some((item) => !item.isDemo)) {
       throw new Error('Refusing to overwrite non-demo records with reserved fixture identities');
     }
+    const existingCity = await tx.jurisdiction.findUnique({ where: { id: DEMO_JURISDICTION_ID } });
+    if (existingCity && (existingCity.name !== DEMO_CITY || existingCity.type !== 'demo')) {
+      throw new Error('Refusing to overwrite non-demo jurisdiction with reserved fixture identity');
+    }
+    await tx.jurisdiction.upsert({
+      where: { id: DEMO_JURISDICTION_ID },
+      create: { id: DEMO_JURISDICTION_ID, name: DEMO_CITY, type: 'demo' },
+      update: {},
+    });
     const politician = await tx.politician.upsert({
       where: { slug: OFFICIAL_SLUG },
       create: { slug: OFFICIAL_SLUG, fullName: 'FAIR TEST OFFICIAL 001 — NOT A REAL PERSON',
-        officeTitle: 'Fictional demo official', district: 'FAIR DEMO — Fictional County', isDemo: true },
-      update: { isDemo: true },
+        officeTitle: 'Fictional demo official', district: DEMO_CITY, isDemo: true, jurisdictionId: DEMO_JURISDICTION_ID },
+      update: { isDemo: true, jurisdictionId: DEMO_JURISDICTION_ID },
     });
     const filing = await tx.form700Filing.upsert({
       where: { politicianId_filingYear: { politicianId: politician.id, filingYear: 2025 } },
@@ -63,7 +74,7 @@ export async function runSyntheticConflictCheck(prisma) {
       [CONTROL_ID, 'SYNTHETIC TEST ONLY: Approve the fictional county meeting calendar.'],
     ]) {
       const row = { title, itemText: title, isDemo: true, sourceType: 'demo',
-        cityName: 'FAIR DEMO — Fictional County', meetingDate: new Date('2025-11-04T00:00:00Z') };
+        cityName: DEMO_CITY, meetingDate: new Date('2025-11-04T00:00:00Z') };
       rows.push(await tx.agendaItem.upsert({
         where: { legistarItemId: key }, create: { ...row, legistarItemId: key }, update: row,
       }));
@@ -71,8 +82,10 @@ export async function runSyntheticConflictCheck(prisma) {
     return rows;
   });
   const ids = items.map((item) => item.id);
-  const firstRun = await detectConflictsForAgendaItems(ids, { prisma });
-  const secondRun = await detectConflictsForAgendaItems(ids, { prisma });
+  // A same-year policy is explicit for this fictional fixture only.
+  const deps = { prisma, eligibilityPolicy: { period: 'YEAR_OFFSETS', offsets: [0] } };
+  const firstRun = await detectConflictsForAgendaItems(ids, deps);
+  const secondRun = await detectConflictsForAgendaItems(ids, deps);
   const status = await getSyntheticConflictStatus(prisma);
   if (!status.passed || secondRun.inserted !== 0) throw new Error('Synthetic conflict assertion failed');
   return { ...status, firstRun, secondRun };

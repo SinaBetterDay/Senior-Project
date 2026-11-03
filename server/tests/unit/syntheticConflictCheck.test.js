@@ -2,8 +2,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { getSyntheticConflictStatus, runSyntheticConflictCheck, removeSyntheticConflictCheck } from '../../src/detection/syntheticConflictCheck.js';
 
 function database() {
-  const state = { politician: null, filing: null, sources: [], items: [], conflicts: [] };
+  const state = { politician: null, filing: null, sources: [], items: [], conflicts: [], jurisdiction: null };
   const prisma = {
+    jurisdiction: {
+      findUnique: vi.fn(async () => state.jurisdiction),
+      upsert: vi.fn(async ({ create }) => (state.jurisdiction ??= create)),
+      findMany: vi.fn(async () => state.jurisdiction ? [state.jurisdiction] : []),
+    },
     politician: {
       findUnique: vi.fn(async () => state.politician),
       upsert: vi.fn(async ({ create }) => (state.politician ??= { id: 'official', ...create })),
@@ -12,8 +17,9 @@ function database() {
     form700Filing: { upsert: vi.fn(async ({ create }) => (state.filing ??= { id: 'filing', ...create })) },
     scheduleCdeIncome: {
       deleteMany: vi.fn(async () => { state.sources = []; }),
-      create: vi.fn(async ({ data }) => { state.sources.push(data); return data; }),
-      findMany: vi.fn(async ({ where }) => where.filing.politician.isDemo ? state.sources : []),
+      create: vi.fn(async ({ data }) => { const row = { id: 'demo-disclosure', ...data }; state.sources.push(row); return row; }),
+      findMany: vi.fn(async ({ where }) => where.filing.politician.isDemo
+        ? state.sources.map(row => ({ ...row, filing: { ...state.filing, politician: state.politician } })) : []),
     },
     scheduleAInvestment: { findMany: vi.fn(async () => []) },
     scheduleBRealEstate: { findMany: vi.fn(async () => []) },
@@ -79,6 +85,13 @@ describe('fictional database conflict fixture with the real matcher', () => {
     const { prisma, state } = database();
     state.politician = { id: 'existing', isDemo: false };
     await expect(runSyntheticConflictCheck(prisma)).rejects.toThrow('Refusing to overwrite');
+    expect(prisma.politician.upsert).not.toHaveBeenCalled();
+  });
+
+  it('refuses a non-demo jurisdiction using the reserved fixture ID', async () => {
+    const { prisma, state } = database();
+    state.jurisdiction = { id: 'fa170000-0000-4000-8000-000000000001', name: 'Real City', type: 'city' };
+    await expect(runSyntheticConflictCheck(prisma)).rejects.toThrow('Refusing to overwrite non-demo jurisdiction');
     expect(prisma.politician.upsert).not.toHaveBeenCalled();
   });
 });

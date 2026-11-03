@@ -58,11 +58,25 @@ function asScheduleA2(row) {
   };
 }
 
-async function loadRows(delegate, isDemo) {
+function evidence(row) {
+  return {
+    disclosureId: row.id,
+    filingId: row.filingId ?? row.filing?.id,
+    filingYear: row.filing?.filingYear ?? row.filingYear,
+    politicianJurisdictionId: row.filing?.politician?.jurisdictionId ?? row.politicianJurisdictionId,
+    supportingSource: row.filing?.archivedPath ?? row.filing?.storagePath ?? row.filing?.originalFilename ?? null,
+    filing: row.filing,
+    schedulePoliticianId: row.politicianId ?? row.politician_id,
+  };
+}
+
+async function loadRows(delegate, jurisdictionIds, isDemo) {
   if (!delegate?.findMany) return [];
   return delegate.findMany({
-    where: { filing: { politician: { isDemo } } },
-    include: { filing: { select: { politicianId: true } } },
+    where: { filing: { politician: { isDemo, OR: [
+      { jurisdictionId: { in: jurisdictionIds } }, { jurisdictionId: null },
+    ] } } },
+    include: { filing: { include: { politician: { select: { jurisdictionId: true, needsReview: true } } } } },
   });
 }
 
@@ -109,10 +123,10 @@ async function detectLockedAgendaItems(client, ids, deps) {
   const groups = new Map();
   for (const isDemo of new Set(items.map((item) => Boolean(item.isDemo)))) {
     groups.set(isDemo, await Promise.all([
-      loadRows(client.scheduleAInvestment, isDemo),
-      loadRows(client.scheduleBRealEstate, isDemo),
-      loadRows(client.scheduleCdeIncome, isDemo),
-      loadRows(client.scheduleA2BusinessPosition, isDemo),
+      loadRows(client.scheduleAInvestment, jurisdictionIds, isDemo),
+      loadRows(client.scheduleBRealEstate, jurisdictionIds, isDemo),
+      loadRows(client.scheduleCdeIncome, jurisdictionIds, isDemo),
+      loadRows(client.scheduleA2BusinessPosition, jurisdictionIds, isDemo),
     ]));
   }
 
@@ -138,19 +152,40 @@ async function detectLockedAgendaItems(client, ids, deps) {
     const scheduleB = (properties || []).map(asScheduleB);
     const scheduleCde = (sources || []).map(asScheduleCde);
     const scheduleA2 = (positions || []).map(asScheduleA2);
-    candidates.push(
-      ...(await detectInvestments(scheduleA, item, matchDeps)),
-    );
-
-    candidates.push(...(await detectRealEstate(scheduleB, item)));
-    
-    candidates.push(
-      ...(await detectIncomeGiftsTravel(scheduleCde, item, matchDeps)),
-    );
-    
-    candidates.push(
-      ...(await detectBusinessPositions(scheduleA2, item, matchDeps)),
-    );
+    const scope = scopes.get(item.id);
+    if (!scope.jurisdictionId || !scope.meetingDate) {
+      requireReview({ agendaItemId: item.id, reason: scope.reason ?? "MISSING_MEETING_DATE" });
+      pendingItemIds.add(item.id);
+      continue;
+    }
+    if (policy.period === "PENDING") {
+      requireReview({ agendaItemId: item.id, reason: "POLICY_PENDING" });
+      pendingItemIds.add(item.id);
+    }
+    const eligible = (rows) => rows.filter((row) => {
+      const result = disclosureEligibility(scope, row, policy);
+      if (result.status === "REVIEW_REQUIRED") {
+        requireReview({ agendaItemId: item.id, filingId: row.filingId, reason: result.reason });
+      }
+      if (["POLICY_PENDING", "REVIEW_REQUIRED"].includes(result.status)) pendingItemIds.add(item.id);
+      return result.status === "ELIGIBLE";
+    });
+    for (const [rows, detector] of [
+      [eligible(scheduleA), (row) => detectInvestments([row], item, matchDeps)],
+      [eligible(scheduleB), (row) => detectRealEstate([row], item)],
+      [eligible(scheduleCde), (row) => detectIncomeGiftsTravel([row], item, matchDeps)],
+      [eligible(scheduleA2), (row) => detectBusinessPositions([row], item, matchDeps)],
+    ]) {
+      for (const row of rows) {
+        for (const flag of await detector(row)) {
+          candidates.push({ ...flag,
+            source_key: `${flag.source_key}:disclosure:${row.disclosureId}`,
+            filingId: row.filingId, disclosureId: row.disclosureId,
+            filingYear: row.filingYear, jurisdictionId: scope.jurisdictionId,
+            meetingDate: scope.meetingDate, supportingSource: row.supportingSource });
+        }
+      }
+    }
   }
 
   // A review-required disclosure must not invalidate earlier matches, but it

@@ -16,6 +16,7 @@ describe("search eligibility", () => {
     expect(response.status).toBe(200);
     const sql = db.$queryRaw.mock.calls[2][0].join(" ");
     expect(sql).toContain("c.eligibility_status IS NULL OR c.eligibility_status = 'active'");
+    expect(sql).toContain('p.is_demo = false AND a.is_demo = false');
     expect(db.$queryRaw).toHaveBeenCalledTimes(3);
   });
 });

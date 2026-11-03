@@ -1,5 +1,8 @@
 import { parsePdfAgenda } from './pdfParser.js';
 import { prisma } from '../lib/prisma.js';
+import { upsertAgendaItems } from './upsertAgendaItems.js';
+import { detectConflictsForAgendaItems } from '../detection/detectConflicts.js';
+import { detectAgendaConflictsSafely } from '../detection/detectAgendaConflictsSafely.js';
 
 const PDF_DOWNLOAD_TIMEOUT_MS = 30_000;
 const MAX_PDF_BYTES = 20 * 1024 * 1024;
@@ -111,6 +114,7 @@ function hasAgendaText(value) {
 async function upsertAgendaRows(prismaClient, rows, source, sourceUrl, documentTitle) {
   let inserted = 0;
   let skipped = 0;
+  const changedIds = [];
 
   for (const row of rows) {
     if (!row || !hasAgendaText(row.itemText)) {
@@ -131,7 +135,6 @@ async function upsertAgendaRows(prismaClient, rows, source, sourceUrl, documentT
       itemNumber,
     };
     const where = { cityId_meetingDate_itemNumber: key };
-    const existing = await prismaClient.agendaItem.findUnique({ where, select: { id: true } });
     const data = {
       ...row,
       cityId: source.id,
@@ -144,12 +147,13 @@ async function upsertAgendaRows(prismaClient, rows, source, sourceUrl, documentT
       sourceType: 'apify',
     };
 
-    await prismaClient.agendaItem.upsert({ where, create: data, update: data });
-    if (existing) skipped += 1;
-    else inserted += 1;
+    const result = await upsertAgendaItems(prismaClient, [data], () => where);
+    inserted += result.inserted;
+    skipped += result.skipped;
+    changedIds.push(...result.changedIds);
   }
 
-  return { inserted, skipped };
+  return { inserted, skipped, changedIds };
 }
 
 async function updateRunRecords(prismaClient, source, syncLogId, counts, errors) {
@@ -171,6 +175,10 @@ async function updateRunRecords(prismaClient, source, syncLogId, counts, errors)
         documentsSkipped: counts.documentsSkipped,
         itemsInserted: counts.itemsInserted,
         itemsSkipped: counts.itemsSkipped,
+        conflictCandidates: counts.conflictCandidates,
+        conflictsDetected: counts.conflictsDetected,
+        conflictsSkipped: counts.conflictsSkipped,
+        detectionErrors: counts.detectionErrors,
         errors: errors.length > 0 ? errors : null,
       },
     }),
@@ -196,6 +204,7 @@ export async function ingestApifyAgendaItems({
   prismaClient = prisma,
   parsePdf = parsePdfAgenda,
   fetchImpl = fetch,
+  detect = detectConflictsForAgendaItems,
   log = console.log,
 } = {}) {
   if (!Array.isArray(items)) throw new Error('Apify dataset results must be an array');
@@ -216,6 +225,10 @@ export async function ingestApifyAgendaItems({
     documentsSkipped: 0,
     itemsInserted: 0,
     itemsSkipped: 0,
+    conflictCandidates: 0,
+    conflictsDetected: 0,
+    conflictsSkipped: 0,
+    detectionErrors: [],
   };
   const errors = [];
 
@@ -240,6 +253,13 @@ export async function ingestApifyAgendaItems({
       ));
       counts.itemsInserted += result.inserted;
       counts.itemsSkipped += result.skipped;
+      if (result.changedIds.length) {
+        const detection = await detectAgendaConflictsSafely(result.changedIds, detect, { prisma: prismaClient });
+        counts.conflictCandidates += detection.conflictCandidates;
+        counts.conflictsDetected += detection.conflictsDetected;
+        counts.conflictsSkipped += detection.conflictsSkipped;
+        counts.detectionErrors.push(...detection.detectionErrors);
+      }
       if (result.inserted === 0 && result.skipped === 0) {
         throw new Error('PDF contained no valid agenda items');
       }

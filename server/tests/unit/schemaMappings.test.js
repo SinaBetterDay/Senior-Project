@@ -44,10 +44,11 @@ function expectPhysicalColumns(models, modelName, tableName, columnNames) {
 
 describe('Prisma mappings used by ingestion', () => {
   it('maps the Legistar raw SQL tables and insert columns to the Prisma schema', async () => {
-    const [schema, nightlySync, apifySync] = await Promise.all([
+    const [schema, nightlySync, apifySync, apifyIngestion] = await Promise.all([
       readServerFile('prisma/schema.prisma'),
       readServerFile('src/jobs/nightlySync.js'),
       readServerFile('src/jobs/runApifyAgendaScrape.js'),
+      readServerFile('src/ingestion/apifyAgenda.js'),
     ]);
     const models = parseSchemaMappings(schema);
     const insertColumnsBlock = nightlySync.match(
@@ -102,10 +103,11 @@ describe('Prisma mappings used by ingestion', () => {
       'legistarItemPayload',
     ]));
 
-    expect(apifySync).toContain('upsertAgendaItems(');
+    expect(apifySync).toContain('ingestApifyAgendaItems(');
+    expect(apifyIngestion).toContain('upsertAgendaItems(');
     expect(apifySync).toContain('prismaClient,');
-    expect(apifySync).toContain('prismaClient.syncLog.create');
-    expect(apifySync).toContain('prismaClient.dataSource.create');
+    expect(apifyIngestion).toContain('prismaClient.syncLog.create');
+    expect(apifyIngestion).toContain('prismaClient.dataSource.create');
     expect([...models.get('DataSource').fields.keys()]).toEqual(expect.arrayContaining([
       'cityName',
       'sourceType',

@@ -121,7 +121,7 @@ describe("public CSV export", () => {
       for (const [query] of db.conflict.findMany.mock.calls) {
         expect(query.take).toBe(250);
         expect(query.orderBy).toEqual({ id: "asc" });
-        expect(query.where).toEqual({ OR: [{ eligibilityStatus: null }, { eligibilityStatus: "active" }] });
+        expect(query.where).toEqual({ politician: { isDemo: false }, agendaItem: { isDemo: false }, OR: [{ eligibilityStatus: null }, { eligibilityStatus: "active" }] });
       }
     },
   );

@@ -13,6 +13,7 @@ const document = {
 let prismaClient;
 let fetchImpl;
 let parsePdf;
+let detect;
 
 beforeEach(() => {
   prismaClient = {
@@ -27,16 +28,18 @@ beforeEach(() => {
   parsePdf = vi.fn().mockResolvedValue([{
     itemNumber: '1', itemText: 'Approve a public works contract.', meetingDate: '2026-10-01',
   }]);
+  detect = vi.fn().mockResolvedValue({ inserted: 1, skipped: 0, totalCandidates: 1 });
 });
 
 describe('shared Apify agenda ingestion', () => {
   it('persists parsed content, document links, and metrics on the supplied sync run', async () => {
     const result = await ingestApifyAgendaItems({
-      items: [document], source, syncLogId: 'sync-1', prismaClient, fetchImpl, parsePdf,
+      items: [document], source, syncLogId: 'sync-1', prismaClient, fetchImpl, parsePdf, detect,
     });
 
     expect(result).toMatchObject({ documentsFound: 1, pdfsFetched: 1, itemsInserted: 1, errors: [] });
     expect(prismaClient.syncLog.create).not.toHaveBeenCalled();
+    expect(detect).toHaveBeenCalledWith(['agenda-1'], { prisma: prismaClient });
     expect(prismaClient.agendaItem.upsert).toHaveBeenCalledWith(expect.objectContaining({
       create: expect.objectContaining({
         sourceType: 'apify', cityId: source.id, title: document.title,
@@ -47,6 +50,7 @@ describe('shared Apify agenda ingestion', () => {
       where: { id: 'sync-1' },
       data: expect.objectContaining({
         status: 'success', documentsFound: 1, pdfsFetched: 1, itemsInserted: 1, errors: null,
+        conflictCandidates: 1, conflictsDetected: 1, detectionErrors: [],
       }),
     });
   });

@@ -121,11 +121,13 @@ it("does not change review status or notes when a conflict is redetected", async
     agendaItems: [
       {
         id: 100,
+        cityName: "Sacramento", meetingDate: "2026-03-01",
         item_text: "Approve zoning changes for property located at 123 Main Street.",
       },
     ],
     scheduleB: [
       {
+        id: "disclosure-b", filingId: "filing-1", filingYear: 2025, politicianJurisdictionId: "sac",
         politicianId: 1,
         propertyDescription: "123 Main Street",
         city: "Sacramento",
@@ -135,10 +137,12 @@ it("does not change review status or notes when a conflict is redetected", async
     initialConflicts: [reviewedConflict],
   });
 
-  const result = await detectConflictsForAgendaItems([100], { prisma: mockPrisma });
+  const result = await detectConflictsForAgendaItems([100], {
+    prisma: mockPrisma, eligibilityPolicy: { period: "YEAR_OFFSETS", offsets: [1] },
+  });
 
   expect(result.inserted).toBe(0);
-  expect(result.duplicates).toBe(1);
+  expect(result.skipped).toBe(1);
   expect(mockPrisma.__insertedConflicts).toEqual([reviewedConflict]);
 });
 

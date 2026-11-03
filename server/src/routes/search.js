@@ -116,7 +116,7 @@ router.get('/', async (req, res, next) => {
         FROM conflicts c
         JOIN politicians p ON p.id = c.politician_id
         JOIN agenda_items a ON a.id = c.agenda_item_id
-        WHERE p.is_demo = false AND a.is_demo = false AND to_tsvector(
+        WHERE p.is_demo = false AND a.is_demo = false AND (c.eligibility_status IS NULL OR c.eligibility_status = 'active') AND to_tsvector(
           'english',
           coalesce(c.conflict_type, '')
   || ' ' || coalesce(c.severity, '')

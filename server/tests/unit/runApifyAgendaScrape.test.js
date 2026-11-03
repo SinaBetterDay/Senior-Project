@@ -312,6 +312,7 @@ describe('runApifyAgendaScrape', () => {
         { pdf_url: 'https://two.test/agenda.pdf', meeting_date: '2026-10-02', city_name: 'Second City' },
       ]),
       parsePdf,
+      detect,
       fetchImpl: vi.fn().mockResolvedValue(pdfResponse()),
       log: vi.fn(),
     });
@@ -366,5 +367,20 @@ describe('runApifyAgendaScrape', () => {
     expect(run).toHaveBeenCalledWith({ city: 'Test City' });
     expect(log).toHaveBeenCalledWith(JSON.stringify({ errors: 0, documentsFound: 0 }, null, 2));
     log.mockRestore();
+  });
+
+  it('returns finite zero totals for empty datasets and counts missing-city results', async () => {
+    for (const [items, skipped] of [[[], 0], [[{ pdf_url: 'https://city.test/a.pdf' }], 1]]) {
+      const state = createPrismaDouble();
+      const result = await runApifyAgendaScrape({
+        prismaClient: state.prisma, scrapeAgendaPDFs: vi.fn().mockResolvedValue(items), log: vi.fn(),
+      });
+      expect(result).toMatchObject({
+        citiesProcessed: 0, documentsFound: 0, pdfsFetched: 0, documentsSkipped: 0,
+        itemsInserted: 0, itemsSkipped: 0, inserted: 0, skipped, errors: skipped,
+        conflictCandidates: 0, conflictsDetected: 0, detectionFailures: 0,
+      });
+      expect(state.prisma.dataSource.create).not.toHaveBeenCalled();
+    }
   });
 });

@@ -21,6 +21,29 @@ function database(items, rows) {
 }
 
 describe("scoped detection", () => {
+  it("keeps demo and real disclosures isolated while enforcing jurisdiction scope", async () => {
+    const demoItem = { ...item("demo", "Sacramento", "2026-01-01"), isDemo: true };
+    const realItem = { ...item("real", "Sacramento", "2026-01-01"), isDemo: false };
+    const { client, conflicts } = database([demoItem, realItem], []);
+    client.scheduleCdeIncome.findMany.mockImplementation(async ({ where }) => {
+      const isDemo = where.filing.politician.isDemo;
+      expect(where.filing.politician.OR[0].jurisdictionId.in).toEqual(["a"]);
+      return [{
+        id: isDemo ? "demo-disclosure" : "real-disclosure", filingId: isDemo ? "demo-filing" : "real-filing",
+        filing: filing(isDemo ? "demo-filing" : "real-filing", "a", 2025),
+        sourceName: "Acme Builders", scheduleType: "C", amount: "$500",
+      }];
+    });
+
+    await detectConflictsForAgendaItems(["demo", "real"], {
+      prisma: client, eligibilityPolicy: { period: "YEAR_OFFSETS", offsets: [1] },
+    });
+
+    expect(conflicts).toHaveLength(2);
+    expect(conflicts.map(row => [row.agendaItemId, row.disclosureId])).toEqual([
+      ["demo", "demo-disclosure"], ["real", "real-disclosure"],
+    ]);
+  });
   it("isolates mixed cities and dates while retaining provenance and idempotence", async () => {
     const { client, conflicts, scheduleCdeIncome } = database(
       [item("i1", "Sacramento", "2026-01-01"), item("i2", "Davis", "2027-01-01")],

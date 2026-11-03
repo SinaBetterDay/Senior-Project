@@ -1,6 +1,6 @@
 import express from 'express';
 import request from 'supertest';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const testState = vi.hoisted(() => {
   const state = {
@@ -23,6 +23,7 @@ const testState = vi.hoisted(() => {
   let syncLogId = 0;
 
   const prisma = {
+    jurisdiction: { findMany: vi.fn(async () => [{ id: 'test-city', name: 'Test City' }]) },
     agendaItem: {
       findMany: vi.fn(async ({ where }) => {
         if (where?.id?.in) {
@@ -80,6 +81,8 @@ const testState = vi.hoisted(() => {
     scheduleCdeIncome: { findMany: vi.fn(async () => state.scheduleCde) },
     scheduleA2BusinessPosition: { findMany: vi.fn(async () => []) },
     conflict: {
+      findMany: vi.fn(async () => state.conflicts),
+      update: vi.fn(async ({ where, data }) => Object.assign(state.conflicts.find(row => row.id === where.id), data)),
       createMany: vi.fn(async ({ data, skipDuplicates }) => {
         let count = 0;
         for (const row of data) {
@@ -121,7 +124,7 @@ const testState = vi.hoisted(() => {
         return row;
       }),
     },
-    $transaction: vi.fn(async (operations) => Promise.all(operations)),
+    $transaction: vi.fn(async (operations) => typeof operations === 'function' ? operations(prisma) : Promise.all(operations)),
   };
 
   return { state, prisma };
@@ -194,12 +197,17 @@ function expectVisibleIncomeConflict() {
 }
 
 describe('agenda ingestion creates visible conflict candidates from matching disclosures', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     testState.state.agendaItems.length = 0;
     testState.state.conflicts.length = 0;
     testState.state.syncLogs.length = 0;
     testState.state.scheduleCde = [{
+      id: 'disclosure-1', filingId: 'filing-1', filingYear: 2025, politicianJurisdictionId: 'test-city',
       politicianId: 'politician-1',
       sourceName: 'Acme Builders',
       amount: '$2,500',
@@ -223,12 +231,15 @@ describe('agenda ingestion creates visible conflict candidates from matching dis
       }],
     });
     vi.stubEnv('APIFY_TOKEN', 'test-token');
+    vi.stubEnv('FAIR_FILING_PERIOD_OFFSETS', '1');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('%PDF-1.7 agenda')));
   });
 
   it('creates a conflict from matching Legistar data in the scheduled sync worker', async () => {
     const id = 'agenda-legistar';
     testState.state.agendaItems.push({
       id,
+      cityName: 'Test City', meetingDate: '2026-10-01',
       sourceType: 'legistar',
       title: 'Approve a contract with Acme Builders.',
       itemText: 'Approve a contract with Acme Builders.',
@@ -249,7 +260,7 @@ describe('agenda ingestion creates visible conflict candidates from matching dis
     const result = await runApifyAgendaScrape({
       prismaClient: testState.prisma,
       scrapeAgendaPDFs: vi.fn().mockResolvedValue(testState.state.actorItems),
-      fetchImpl: vi.fn(async () => new Response('pdf')),
+      fetchImpl: vi.fn(async () => new Response('%PDF-1.7 agenda')),
       log: vi.fn(),
     });
 
