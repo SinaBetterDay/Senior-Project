@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import postgres from 'postgres';
+import * as XLSX from 'xlsx';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -15,11 +16,25 @@ vi.mock('../../src/lib/auth.js', () => {
     if (req.headers.authorization !== 'Bearer functional-admin') {
       return res.status(401).json({ error: 'unauthorized' });
     }
-    req.user = { id: 'functional-admin-user', email: 'admin@fair.test' };
+    req.user = { id: 'fa170000-0000-4000-8000-000000000002', email: 'admin@fair.test' };
+    req.adminMember = { userId: req.user.id, role: 'owner', active: true };
     return next();
   };
-  return { requireAdmin, default: requireAdmin };
+  return {
+    requireAdmin,
+    default: requireAdmin,
+    requireAuthenticated: requireAdmin,
+    requireOwner: (req, res, next) => req.adminMember?.active && req.adminMember.role === 'owner'
+      ? next() : res.status(403).json({ error: 'owner required' }),
+  };
 });
+
+// The journey exercises synchronous real redetection below. Do not start a second
+// background detector that races assertions or fixture cleanup.
+vi.mock('../../src/detection/detectionRuns.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  queueDetectionRun: vi.fn(),
+}));
 
 vi.mock('../../src/lib/storage.js', () => ({
   XLSX_MIME: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -57,6 +72,7 @@ import { detectConflictsForAgendaItems } from '../../src/detection/detectConflic
 import { redetectDisclosureAgendaItems } from '../../src/detection/redetectDisclosure.js';
 import { runLegistarSyncForCity } from '../../src/jobs/nightlySync.js';
 import { runApifyAgendaScrape } from '../../src/jobs/runApifyAgendaScrape.js';
+import { requireAdmin, requireAuthenticated, requireOwner } from '../../src/lib/auth.js';
 
 const runFunctional = process.env.RUN_FUNCTIONAL_TESTS === 'true';
 const describeFunctional = runFunctional ? describe : describe.skip;
@@ -67,6 +83,47 @@ const POLITICIAN_SLUG = 'james-gore-functional';
 let jurisdictionId;
 let politicianId;
 let sql;
+let fixtureInitialized = false;
+
+// The historical workbook is a county-wide export. Keep the real schedule values
+// but assign this synthetic single-filing scenario one owner/submission, as the
+// single-filing upload unit tests do. Never alter the binary source fixture.
+const singleWorkbook = XLSX.read(fs.readFileSync(path.resolve('tests/fixtures/form700-valid.xlsx')));
+for (const name of singleWorkbook.SheetNames) {
+  const rows = XLSX.utils.sheet_to_json(singleWorkbook.Sheets[name], { header: 1, defval: null });
+  const header = rows.findIndex(row => row.includes('Last Name'));
+  if (header < 0) continue;
+  for (const row of rows.slice(header + 1)) {
+    if (!row[0] || !row[1]) continue;
+    row[0] = 'Gore'; row[1] = 'James'; row[2] = 'M'; row[7] = 'Annual'; row[10] = 43922;
+  }
+  singleWorkbook.Sheets[name] = XLSX.utils.aoa_to_sheet(rows);
+}
+const workbookBuffer = XLSX.write(singleWorkbook, { type: 'buffer', bookType: 'xlsx' });
+
+describe('functional auth mock contract (no database required)', () => {
+  it.each([requireAdmin, requireAuthenticated])('rejects missing tokens and supplies owner context for valid tokens', (guard) => {
+    const next = vi.fn();
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    guard({ headers: {} }, res, next);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+    const req = { headers: { authorization: 'Bearer functional-admin' } };
+    guard(req, res, next);
+    expect(req.adminMember).toMatchObject({ active: true, role: 'owner' });
+    expect(next).toHaveBeenCalledTimes(1);
+    requireOwner(req, res, next);
+    expect(next).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects non-owner access', () => {
+    const next = vi.fn();
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    requireOwner({ adminMember: { active: true, role: 'admin' } }, res, next);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+});
 
 async function cleanFixtureData() {
   const politicians = await prisma.politician.findMany({
@@ -102,6 +159,8 @@ describeFunctional('SH-328 core user journey', () => {
     if (!process.env.DATABASE_URL?.includes('fair_test')) {
       throw new Error('Functional tests require an isolated database whose URL contains "fair_test".');
     }
+    vi.stubEnv('FAIR_FILING_PERIOD_OFFSETS', '0');
+    fixtureInitialized = true;
     sql = postgres(process.env.DATABASE_URL, { max: 1 });
     await cleanFixtureData();
     const jurisdiction = await prisma.jurisdiction.create({
@@ -126,11 +185,16 @@ describeFunctional('SH-328 core user journey', () => {
   });
 
   afterAll(async () => {
-    if (!runFunctional) return;
-    await cleanFixtureData();
-    external.archivedWorkbooks.clear();
-    await sql?.end();
-    await prisma.$disconnect();
+    if (!fixtureInitialized) return;
+    try {
+      await cleanFixtureData();
+    } finally {
+      vi.unstubAllEnvs();
+      vi.restoreAllMocks();
+      external.archivedWorkbooks.clear();
+      await sql?.end();
+      await prisma.$disconnect();
+    }
   });
 
   it('ingests agenda data before a disclosure, uploads, detects, reviews, redetects, and displays the result', async () => {
@@ -153,7 +217,7 @@ describeFunctional('SH-328 core user journey', () => {
         city_name: JURISDICTION_NAME,
         meeting_date: '2019-07-09',
       }]),
-      fetchImpl: vi.fn().mockResolvedValue(new Response('functional pdf')),
+      fetchImpl: vi.fn().mockResolvedValue(new Response('%PDF-1.7 functional pdf')),
       parsePdf: vi.fn(async (_buffer, cityId, meetingDate) => [{
         cityId,
         meetingDate,
@@ -166,7 +230,7 @@ describeFunctional('SH-328 core user journey', () => {
     });
     expect(apify).toMatchObject({ inserted: 1, conflictsDetected: 0, errors: 0 });
 
-    const workbook = fs.readFileSync(path.resolve('tests/fixtures/form700-valid.xlsx'));
+    const workbook = workbookBuffer;
     const unauthorized = await request(app)
       .post('/api/admin/upload/form700')
       .field('politician_id', politicianId)
