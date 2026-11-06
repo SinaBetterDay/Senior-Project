@@ -144,6 +144,22 @@ describe('runApifyAgendaScrape', () => {
   }]);
   const detect = vi.fn(async () => ({ inserted: 0, skipped: 0, totalCandidates: 0 }));
 
+  it('records source scrape failures and marks the scheduled run failed', async () => {
+    const state = createPrismaDouble();
+    const result = await runApifyAgendaScrape({
+      prismaClient: state.prisma,
+      scrapeAgendaPDFs: async ({ onSourceError }) => {
+        onSourceError({ cityName: 'Unavailable City' }, new Error('Provider unavailable'));
+        return [];
+      },
+      log: vi.fn(),
+    });
+
+    expect(result.errors).toBe(1);
+    expect(result.sourceErrors).toEqual([{ cityName: 'Unavailable City', message: 'Provider unavailable' }]);
+    expect(state.syncJobRuns[0].status).toBe('failed');
+  });
+
   it('downloads, parses, persists, and logs an Apify PDF result', async () => {
     const state = createPrismaDouble();
     const scrapeAgendaPDFs = vi.fn().mockResolvedValue([{
@@ -161,7 +177,7 @@ describe('runApifyAgendaScrape', () => {
       log: vi.fn(),
     });
 
-    expect(scrapeAgendaPDFs).toHaveBeenCalledWith({ lookbackDays: 14 });
+    expect(scrapeAgendaPDFs).toHaveBeenCalledWith({ lookbackDays: 14, onSourceError: expect.any(Function) });
     expect(result).toMatchObject({ citiesProcessed: 1, pdfsFetched: 1, inserted: 1, skipped: 0, errors: 0 });
     expect(state.sources).toHaveLength(1);
     expect(state.sources[0]).toMatchObject({

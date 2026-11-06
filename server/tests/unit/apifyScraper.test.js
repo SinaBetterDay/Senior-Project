@@ -54,4 +54,46 @@ describe('scrapeAgendaPDFs', () => {
     await expect(scrapeAgendaPDFs()).rejects.toThrow('Agenda archive URL is required for City of Calexico');
     expect(mocks.actorCall).not.toHaveBeenCalled();
   });
+
+  it('attributes documents to the configured source when the actor omits or mislabels the city', async () => {
+    mocks.findMany.mockResolvedValue([{
+      cityName: 'Configured City', startUrl: 'https://city.test/agendas', apifyActorId: 'actor-id',
+    }]);
+    mocks.dataset.mockReturnValue({ listItems: vi.fn().mockResolvedValue({ items: [
+      { pdf_url: 'https://city.test/agenda.pdf' },
+      { pdf_url: 'https://city.test/other.pdf', city_name: 'Wrong City' },
+    ] }) });
+
+    const items = await scrapeAgendaPDFs();
+
+    expect(items.map((item) => item.city_name)).toEqual(['Configured City', 'Configured City']);
+  });
+
+  it.each([
+    [{ status: 'FAILED', statusMessage: 'Provider unavailable' }, 'Provider unavailable'],
+    [{ status: 'SUCCEEDED' }, 'did not return a dataset ID'],
+  ])('continues with remaining sources after an actor failure: %j', async (failedRun, message) => {
+    mocks.findMany.mockResolvedValue(['Failed City', 'Healthy City'].map((cityName) => ({
+      cityName, startUrl: 'https://city.test/agendas', apifyActorId: 'actor-id',
+    })));
+    mocks.actorCall.mockResolvedValueOnce(failedRun);
+    const onSourceError = vi.fn();
+
+    await scrapeAgendaPDFs({ onSourceError });
+
+    expect(mocks.actorCall).toHaveBeenCalledTimes(2);
+    expect(onSourceError).toHaveBeenCalledWith(
+      expect.objectContaining({ cityName: 'Failed City' }),
+      expect.objectContaining({ message: expect.stringContaining(message) }),
+    );
+  });
+
+  it('reports invalid dataset results without a city reference error', async () => {
+    mocks.findMany.mockResolvedValue([{
+      cityName: 'Test City', startUrl: 'https://city.test/agendas', apifyActorId: 'actor-id',
+    }]);
+    mocks.dataset.mockReturnValue({ listItems: vi.fn().mockResolvedValue({ items: null }) });
+
+    await expect(scrapeAgendaPDFs()).rejects.toThrow('Apify dataset for Test City returned invalid results.');
+  });
 });

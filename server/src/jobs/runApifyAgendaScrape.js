@@ -36,7 +36,14 @@ async function performApifyAgendaScrape({
     ({ scrapeAgendaPDFs } = await import('../../services/apifyscraper.js'));
   }
 
-  const actorItems = await scrapeAgendaPDFs({ lookbackDays });
+  const sourceErrors = [];
+  const actorItems = await scrapeAgendaPDFs({
+    lookbackDays,
+    onSourceError: (source, error) => {
+      sourceErrors.push({ cityName: source.cityName, message: error.message });
+      log(`[apify] city="${source.cityName}" scrape failed: ${error.message}`);
+    },
+  });
   if (!Array.isArray(actorItems)) throw new Error('Apify dataset results must be an array');
 
   const requestedCity = normalizeCityName(city).toLowerCase();
@@ -118,13 +125,13 @@ async function performApifyAgendaScrape({
     conflictsSkipped: 0,
     detectionFailures: 0,
     detectionErrors: [],
-    errors: missingCity,
+    errors: missingCity + sourceErrors.length,
   });
 
   totals.inserted = totals.itemsInserted;
   totals.skipped = missingCity + totals.documentsSkipped + totals.itemsSkipped;
   log(`[apify] complete ${JSON.stringify(totals)}`);
-  return { ...totals, cities };
+  return { ...totals, cities, sourceErrors };
 }
 
 export async function runApifyAgendaScrape(options = {}) {
