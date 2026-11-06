@@ -132,16 +132,31 @@ export default function AdminUploadPage() {
     <AdminGuard>
       <div className="min-h-screen bg-slate-50 text-slate-900">
         <AdminNav title="Form 700 upload" />
-        <main className="mx-auto max-w-5xl space-y-6 px-5 py-8">
+        <main className="mx-auto max-w-7xl space-y-6 px-5 py-8">
+          <header>
+            <h1 className="text-2xl font-bold sm:text-3xl">Upload Form 700 disclosures</h1>
+            <p className="mt-2 text-slate-600">Choose the upload that matches your file: a multi-official export or one official’s filing.</p>
+          </header>
+          <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
           <Form700BulkUpload />
-          <section className="surface p-5 sm:p-7">
-            <div className="mb-5 flex items-start gap-3">
-              <div className="bg-emerald-100 p-2 text-emerald-900"><FileUp size={20} /></div>
+          <section className="surface min-w-0 border-t-4 border-t-emerald-700 p-5 sm:p-7" aria-labelledby="individual-upload-title">
+            <div className="flex items-start gap-3">
+              <div className="rounded-lg bg-emerald-100 p-2 text-emerald-900"><FileUp size={24} aria-hidden="true" /></div>
               <div>
-                <h2 className="text-lg font-semibold">Upload individual Form 700</h2>
-                <p className="mt-1 text-sm text-slate-600">Form 700 XLSX or text-based FPPC PDF. Maximum size: 10 MB. Scanned PDFs are not supported. PDF imports extract names and locations only; use XLSX for full structured schedule data. Cover-only PDFs create no disclosure records, and amendment schedules are not carried forward.</p>
+                <p className="text-xs font-bold uppercase tracking-wide text-emerald-800">One official · XLSX or PDF</p>
+                <h2 id="individual-upload-title" className="mt-1 text-xl font-semibold">Upload individual Form 700</h2>
               </div>
             </div>
+            <p className="mt-4 text-sm text-slate-700">Use this for one official’s filing for one reporting year. Match the official automatically or select a profile below.</p>
+            <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950">
+              <p className="font-semibold">What goes here?</p>
+              <p className="mt-1">One cover-page .xlsx workbook or text-based FPPC Form 700 .pdf. Maximum 10 MB. No scanned PDFs.</p>
+              <p className="mt-2 font-medium">Have a county or agency workbook with multiple officials? Use the bulk import panel instead.</p>
+            </div>
+            <details className="my-4 text-sm text-slate-600">
+              <summary className="cursor-pointer font-medium text-emerald-800">PDF parsing and amendment limitations</summary>
+              <p className="mt-2">PDF imports extract names and locations only; use XLSX for full structured schedule data. Cover-only PDFs create no disclosure records, and amendment schedules are not carried forward.</p>
+            </details>
 
             {loadError && <RequestError message={loadError} onRetry={() => setAttempt(value => value + 1)} />}
             <label className="mb-2 block text-sm font-medium" htmlFor="politician">Match to politician <span className="font-normal text-slate-500">(optional)</span></label>
@@ -157,14 +172,15 @@ export default function AdminUploadPage() {
               onDragOver={(event) => event.preventDefault()}
               onDragLeave={() => setDragging(false)}
               onDrop={onDrop}
-              className={`flex min-h-52 w-full flex-col items-center justify-center border-2 border-dashed px-5 text-center transition ${dragging ? "border-emerald-700 bg-emerald-50" : "border-slate-300 bg-slate-50 hover:border-emerald-700"}`}
+              disabled={uploading}
+              className={`flex min-h-52 w-full flex-col items-center justify-center rounded-xl border-2 border-dashed px-5 text-center transition focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 ${dragging ? "border-emerald-700 bg-emerald-100" : "border-emerald-300 bg-emerald-50/50 hover:border-emerald-700 hover:bg-emerald-50"}`}
             >
               <Upload className="mb-3 text-emerald-800" size={28} />
               <span className="font-semibold">{file ? file.name : "Drop an XLSX workbook or PDF here"}</span>
-              <span className="mt-1 text-sm text-slate-600">or select a file from your device</span>
+              <span className="mt-3 rounded-lg border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-900">{file ? 'Change individual filing' : 'Choose individual XLSX or PDF'}</span>
               {file && <span className="mt-2 text-xs text-slate-500">{(file.size / (1024 * 1024)).toFixed(2)} MB</span>}
             </button>
-            <input ref={inputRef} className="sr-only" type="file" accept=".xlsx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={onFileChange} />
+            <input ref={inputRef} className="sr-only" type="file" aria-label="Individual Form 700 file (XLSX or PDF, maximum 10 MB)" accept=".xlsx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={uploading} onChange={onFileChange} />
 
             {error && <p className="mt-4 border-l-4 border-red-700 bg-red-50 px-3 py-2.5 text-sm text-red-800" role="alert">{safeMessage(error)}</p>}
 
@@ -176,11 +192,12 @@ export default function AdminUploadPage() {
             )}
 
             <div className="mt-5 flex justify-end">
-              <button type="button" onClick={uploadFile} disabled={!file || uploading} className="button-primary">
+              <button type="button" onClick={uploadFile} disabled={!file || uploading} className="inline-flex min-h-12 w-full items-center justify-center rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-50">
                 {uploading ? "Processing..." : error && file ? "Retry upload" : "Upload Form 700"}
               </button>
             </div>
           </section>
+          </div>
 
           {summary && (
             <section className="border border-emerald-300 bg-white p-5 sm:p-7" aria-live="polite">

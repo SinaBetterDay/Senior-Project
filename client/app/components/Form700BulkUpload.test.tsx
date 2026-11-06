@@ -7,6 +7,22 @@ vi.mock('../adminAuth', () => ({ adminFetch: vi.fn() }));
 afterEach(() => vi.clearAllMocks());
 const preview = { digest: 'digest', warnings: ['Review amendments for completeness.'], filings: [{ filer_name: 'Alice One', agency: 'County Test', filing_year: 2019, filing_type: 'Annual', filed_at: '2020-04-01', status: 'ready', versions: [{}], schedules_parsed: { A: 2 } }] };
 
+it('offers a prominent file-picker button and displays the chosen workbook', () => {
+  render(<Form700BulkUpload />);
+  const input = screen.getByLabelText('Bulk workbook (maximum 10 MB)');
+  const click = vi.spyOn(input, 'click');
+  const choose = screen.getByRole('button', { name: 'Choose bulk XLSX workbook' });
+  expect(choose).toBeVisible();
+  expect(choose).toHaveClass('button-primary', 'min-h-12', 'w-full');
+  expect(choose).toHaveAccessibleDescription(/One .xlsx workbook/);
+  fireEvent.click(choose);
+  expect(click).toHaveBeenCalledOnce();
+  fireEvent.change(input, { target: { files: [new File(['xlsx'], 'county-export.xlsx')] } });
+  expect(screen.getByText(/county-export.xlsx ·/)).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Change bulk XLSX workbook' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Preview bulk workbook' })).toBeEnabled();
+});
+
 it('requires a preview and warning acknowledgement before importing', async () => {
   vi.mocked(adminFetch).mockResolvedValueOnce(Response.json(preview)).mockResolvedValueOnce(Response.json({ imported: 1, skipped: 0, failed: 0, results: [{ filer_name: 'Alice One', status: 'imported', slug: 'alice' }] }));
   render(<Form700BulkUpload />);

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import Upload from "./admin.upload";
 import { UPLOAD_TIMEOUT_MS } from "../lib/request";
@@ -17,8 +17,8 @@ it.each(["validation", "timeout"])("shows a specific %s failure and retry upload
     open() {} setRequestHeader() {} send() {}
   }
   vi.stubGlobal("XMLHttpRequest", MockRequest);
-  const { container } = render(<Upload />);
-  fireEvent.change(container.querySelector('input[type="file"].sr-only')!, { target: { files: [new File(["workbook"], "filing.xlsx")] } });
+  render(<Upload />);
+  fireEvent.change(screen.getByLabelText('Individual Form 700 file (XLSX or PDF, maximum 10 MB)'), { target: { files: [new File(["workbook"], "filing.xlsx")] } });
   fireEvent.click(screen.getByRole("button", { name: "Upload Form 700" }));
   await waitFor(() => expect(xhr).toBeDefined());
   expect(xhr.timeout).toBe(UPLOAD_TIMEOUT_MS);
@@ -38,9 +38,9 @@ it.each(['select', 'drop'])('uploads a PDF via %s and displays parser warnings',
     open() {} setRequestHeader() {} send(value: FormData) { body = value; }
   }
   vi.stubGlobal('XMLHttpRequest', MockRequest);
-  const { container } = render(<Upload />);
+  render(<Upload />);
   const file = new File(['%PDF-1.4'], 'filing.PDF', { type: 'application/pdf' });
-  const input = container.querySelector('input[type="file"].sr-only')!;
+  const input = screen.getByLabelText('Individual Form 700 file (XLSX or PDF, maximum 10 MB)');
   expect(input.getAttribute('accept')).toContain('.pdf');
   if (method === 'select') fireEvent.change(input, { target: { files: [file] } });
   else fireEvent.drop(screen.getByRole('button', { name: /Drop an XLSX workbook or PDF/ }), { dataTransfer: { files: [file] } });
@@ -52,10 +52,27 @@ it.each(['select', 'drop'])('uploads a PDF via %s and displays parser warnings',
 });
 
 it.each([['filing.txt', 1], ['filing.pdf', 10 * 1024 * 1024 + 1]])('rejects invalid or oversized %s files', async (name, size) => {
-  const { container } = render(<Upload />);
+  render(<Upload />);
   const file = new File(['x'], name);
   Object.defineProperty(file, 'size', { value: size });
-  fireEvent.change(container.querySelector('input[type="file"].sr-only')!, { target: { files: [file] } });
+  fireEvent.change(screen.getByLabelText('Individual Form 700 file (XLSX or PDF, maximum 10 MB)'), { target: { files: [file] } });
   expect(screen.getByRole('alert')).toHaveTextContent(name.endsWith('.txt') ? 'Only .xlsx or .pdf' : '10 MB');
   expect(screen.getByRole('button', { name: 'Upload Form 700' })).toBeDisabled();
+});
+
+it('distinguishes bulk and individual uploads in a responsive two-panel layout', async () => {
+  render(<Upload />);
+  const bulk = screen.getByRole('region', { name: 'Bulk Form 700 import' });
+  const individual = screen.getByRole('region', { name: 'Upload individual Form 700' });
+  expect(bulk.parentElement).toBe(individual.parentElement);
+  expect(bulk.parentElement).toHaveClass('grid-cols-1', 'lg:grid-cols-2');
+  expect(within(bulk).getByText('Multiple officials · XLSX only')).toBeVisible();
+  expect(within(individual).getByText('One official · XLSX or PDF')).toBeVisible();
+  expect(within(bulk).getByRole('button', { name: 'Choose bulk XLSX workbook' })).toBeVisible();
+  expect(within(individual).getByText('Choose individual XLSX or PDF')).toBeVisible();
+  expect(within(bulk).getByText(/Have a PDF or a single official/)).toBeVisible();
+  expect(within(individual).getByText(/Have a county or agency workbook/)).toBeVisible();
+  expect(within(bulk).getByLabelText('Bulk workbook (maximum 10 MB)')).toHaveAttribute('accept', '.xlsx');
+  expect(within(individual).getByLabelText('Individual Form 700 file (XLSX or PDF, maximum 10 MB)')).toHaveAttribute('accept', expect.stringContaining('.pdf'));
+  await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
 });
