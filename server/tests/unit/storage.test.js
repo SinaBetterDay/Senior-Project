@@ -57,6 +57,14 @@ describe("private Form 700 workbook storage", () => {
     expect(storageMocks.remove).toHaveBeenCalledWith([path]);
   });
 
+  it('archives PDF bytes with the PDF content type', async () => {
+    storageMocks.upload.mockResolvedValue({ error: null });
+    const buffer = Buffer.from('%PDF-1.4');
+    const path = await archiveWorkbook(buffer, 'filing.PDF', { filingId: 'f', politicianId: 'p' });
+    expect(path).toMatch(/filing.PDF$/);
+    expect(storageMocks.upload).toHaveBeenCalledWith(path, buffer, { contentType: 'application/pdf', upsert: false });
+  });
+
   it("sanitizes object-key filenames", () => {
     expect(sanitizeFilename("../../bad name?.xlsx")).toBe("bad_name_.xlsx");
   });

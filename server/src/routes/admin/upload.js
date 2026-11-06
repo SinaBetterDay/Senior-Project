@@ -26,6 +26,7 @@ import * as XLSX from "xlsx";
 import { prisma } from "../../lib/prisma.js";
 import { archiveWorkbook, deleteWorkbook, XLSX_MIME } from "../../lib/storage.js";
 import { parseCoverPage } from "../../parsers/coverPage.js";
+import { parseForm700Pdf } from "../../parsers/form700Pdf.js";
 import { parseScheduleA } from "../../parsers/scheduleA.js";
 import { parseScheduleA2 } from "../../parsers/scheduleA2.js";
 import { parseScheduleB } from "../../parsers/scheduleB.js";
@@ -182,22 +183,28 @@ router.post("/form700", receiveFile, async (req, res, next) => {
   try {
     // 1. File present + MIME ----------------------------------------------
     if (!req.file || !req.file.buffer) {
-      return res.status(400).json({ error: "Missing XLSX upload (multipart field `file`)." });
+      return res.status(400).json({ error: "Missing XLSX or PDF upload (multipart field `file`)." });
     }
 
-    if (!/\.xlsx$/i.test(req.file.originalname ?? "")) {
-      return res.status(400).json({ error: "Only .xlsx files are accepted." });
+    const isPdf = /\.pdf$/i.test(req.file.originalname ?? "");
+    if (!/\.(xlsx|pdf)$/i.test(req.file.originalname ?? "")) {
+      return res.status(400).json({ error: "Only .xlsx or .pdf files are accepted." });
     }
 
     // Strict: clients must send the XLSX content type (curl: `-F "file=@x.xlsx;type=<mime>"`).
-    if (req.file.mimetype !== XLSX_MIME) {
+    if (req.file.mimetype !== (isPdf ? 'application/pdf' : XLSX_MIME)) {
       return res.status(400).json({
-        error: `Invalid file type "${req.file.mimetype}". Expected ${XLSX_MIME}.`,
+        error: `Invalid file type "${req.file.mimetype}". Expected ${isPdf ? 'application/pdf' : XLSX_MIME}.`,
       });
     }
 
     // 2. Readable workbook with Form 700 sheets ------------------------------
     let workbook;
+    let pdf;
+    if (isPdf) {
+      try { pdf = await parseForm700Pdf(req.file.buffer); }
+      catch (error) { return res.status(400).json({ error: error.message }); }
+    } else {
     try {
       workbook = XLSX.read(req.file.buffer, { type: "buffer" });
     } catch {
@@ -227,9 +234,10 @@ router.post("/form700", receiveFile, async (req, res, next) => {
     if (bulk && (bulk.filings.length > 1 || bulk.filings.some(filing => filing.versions.length > 1))) {
       return res.status(400).json({ error: 'This workbook contains multiple filers or submissions. Use the bulk Form 700 preview and import.' });
     }
+    }
 
     // 3. Filer metadata ------------------------------------------------------
-    const cover = parseCoverPage(workbook);
+    const cover = pdf?.cover ?? parseCoverPage(workbook);
     const filerName = cleanBodyString(req.body?.filer_name) ?? cover.filer_name;
     const district = cleanBodyString(req.body?.district) ?? cover.district;
     const officeTitle = cleanBodyString(req.body?.office_title) ?? cover.office_title;
@@ -322,10 +330,10 @@ router.post("/form700", receiveFile, async (req, res, next) => {
 
         const ids = { filingId: filing.id, politicianId };
 
-        const rowsA = parseScheduleA(workbook, filing.id);
-        const rowsB = parseScheduleB(workbook, filing.id);
-        const rowsCDE = parseScheduleCDE(workbook, filing.id);
-        const rowsA2 = parseScheduleA2(workbook, filing.id);
+        const rowsA = pdf?.schedules.A ?? parseScheduleA(workbook, filing.id);
+        const rowsB = pdf?.schedules.B ?? parseScheduleB(workbook, filing.id);
+        const rowsCDE = pdf?.schedules.CDE ?? parseScheduleCDE(workbook, filing.id);
+        const rowsA2 = pdf?.schedules.A2 ?? parseScheduleA2(workbook, filing.id);
 
         if (rowsA.length > 0) {
           await tx.scheduleAInvestment.createMany({ data: toScheduleA(rowsA, ids) });
@@ -436,6 +444,7 @@ router.post("/form700", receiveFile, async (req, res, next) => {
     });
 
     return res.status(200).json({
+      ...(pdf ? { warnings: pdf.warnings } : {}),
       filing_id: filingId,
       corrected: Boolean(existing),
       detection_run_id: detectionRunId,

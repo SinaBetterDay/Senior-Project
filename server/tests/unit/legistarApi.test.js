@@ -1,9 +1,28 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getAgendaItems, getMeetings } from '../../src/ingestion/legistarApi.js';
+import { getAgendaItems, getMeetings, getMatterVersions, getMatterText, getMatterAttachments } from '../../src/ingestion/legistarApi.js';
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Legistar API requests', () => {
+  it('retrieves version IDs, versioned matter text, and attachments separately', async () => {
+    const mock = vi.fn().mockResolvedValueOnce(Response.json([{ Key: '5268', Value: '1' }]))
+      .mockResolvedValueOnce(Response.json({ MatterTextId: 5268, MatterTextPlain: 'Staff report' }))
+      .mockResolvedValueOnce(Response.json([{ MatterAttachmentId: 9 }]));
+    vi.stubGlobal('fetch', mock);
+    const base = 'https://webapi.legistar.com/v1/sonoma-county';
+    expect(await getMatterVersions(base, 5219)).toEqual([{ Key: '5268', Value: '1' }]);
+    expect(await getMatterText(base, 5219, 5268)).toHaveProperty('MatterTextPlain', 'Staff report');
+    expect(await getMatterAttachments(base, 5219)).toHaveLength(1);
+    expect(mock.mock.calls.map(([url]) => url)).toEqual([
+      `${base}/Matters/5219/Versions`, `${base}/Matters/5219/Texts/5268`, `${base}/Matters/5219/Attachments`,
+    ]);
+  });
+
+  it.each([getMatterVersions, getMatterAttachments, getMatterText])('rejects malformed matter endpoint responses', async fn => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(fn === getMatterText ? [] : {})));
+    await expect(fn('https://example.test', 1, 2)).rejects.toThrow('Unexpected response');
+  });
+
   it('uses an AbortSignal so stalled upstream requests have a real deadline', async () => {
     const fetchMock = vi.fn().mockResolvedValue(Response.json([]));
     vi.stubGlobal('fetch', fetchMock);

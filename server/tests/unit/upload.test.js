@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import request from "supertest";
 import * as XLSX from 'xlsx';
+import { makeForm700Pdf, pdfCover, pdfItem } from '../fixtures/form700Pdf.js';
 
 // --- mocks (hoisted by vitest) ---------------------------------------------
 
@@ -139,6 +140,43 @@ beforeEach(() => {
 });
 
 describe("POST /api/admin/upload/form700", () => {
+  it('imports a text PDF with schedule records and archives its original bytes', async () => {
+    const buffer = makeForm700Pdf([pdfCover, [pdfItem('SCHEDULE C', 40, 720), pdfItem('NAME OF SOURCE', 40, 650), pdfItem('Example Employer', 40, 635)]]);
+    const res = await postFile(buffer, { filename: 'filing.pdf', contentType: 'application/pdf' });
+    expect(res.status).toBe(200);
+    expect(res.body.schedules_parsed).toEqual({ A: 0, A2: 0, B: 0, CDE: 1 });
+    expect(res.body.warnings[0]).toContain('named entities');
+    expect(findOrCreatePolitician).toHaveBeenCalledWith('Alex A Example', null, { officeTitle: 'Supervisor' });
+    expect(prisma.__tx.form700Filing.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ filingYear: 2025, originalFilename: 'filing.pdf' }) }));
+    expect(prisma.__tx.scheduleCdeIncome.createMany).toHaveBeenCalledWith({ data: [{ filingId: FILING_ID, politicianId: POLITICIAN_ID, scheduleType: 'C', sourceName: 'Example Employer', amount: null }] });
+    expect(archiveWorkbook).toHaveBeenCalledWith(buffer, 'filing.pdf', { filingId: FILING_ID, politicianId: POLITICIAN_ID });
+  });
+
+  it('warns that a cover-only amendment PDF has no disclosure rows', async () => {
+    const res = await postFile(makeForm700Pdf([[...pdfCover, pdfItem('AMENDMENT', 60, 718)]]), { filename: 'amendment.pdf', contentType: 'application/pdf' });
+    expect(res.status).toBe(200);
+    expect(res.body.schedules_parsed).toEqual({ A: 0, A2: 0, B: 0, CDE: 0 });
+    expect(res.body.warnings).toHaveLength(2);
+    expect(prisma.__tx.scheduleCdeIncome.createMany).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [Buffer.from('fake'), 'application/pdf'],
+    [makeForm700Pdf([[]]), 'application/pdf'],
+    [makeForm700Pdf(), 'text/plain'],
+  ])('rejects invalid, scanned or MIME-mismatched PDFs without writes', async (buffer, contentType) => {
+    const res = await postFile(buffer, { filename: 'filing.pdf', contentType });
+    expect(res.status).toBe(400);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(archiveWorkbook).not.toHaveBeenCalled();
+  });
+
+  it('keeps duplicate-year protection for PDF uploads', async () => {
+    prisma.form700Filing.findUnique.mockResolvedValue({ id: 'existing' });
+    const res = await postFile(makeForm700Pdf(), { filename: 'filing.pdf', contentType: 'application/pdf' });
+    expect(res.status).toBe(409);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
   it('rejects a multi-filer workbook on the single-filing route', async () => {
     const buffer = fs.readFileSync(path.resolve('../docs/County of Sonoma -- Form 700 (2019).xlsx'));
     const res = await postFile(buffer);
@@ -359,7 +397,7 @@ describe("POST /api/admin/upload/form700", () => {
     const res = await postFile(validBuffer, { filename: "form700.xml" });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/Only \.xlsx files are accepted/);
+    expect(res.body.error).toMatch(/Only \.xlsx or \.pdf files are accepted/);
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
@@ -403,7 +441,7 @@ describe("POST /api/admin/upload/form700", () => {
       .field("politician_id", POLITICIAN_ID);
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/Missing XLSX upload/);
+    expect(res.body.error).toMatch(/Missing XLSX or PDF upload/);
   });
 
   it("returns 401 for an unauthenticated request and never touches parsing or the DB", async () => {

@@ -61,7 +61,16 @@ Sign in and open `/admin/upload`. Use **Bulk Form 700 import** for county/agency
 NetFile exports containing multiple filers (XLSX, maximum 10 MB). Preview the
 filer/year groups, selected submissions, schedule counts and warnings, acknowledge
 the completeness warnings, then confirm the import. The single-filing uploader
-remains available for cover-page workbooks. PDF/scanned forms are not supported.
+accepts cover-page XLSX workbooks and text-based FPPC Form 700 PDFs (maximum
+10 MB). Scanned/image-only and encrypted PDFs are not supported. PDF ingestion
+extracts filer/reporting-year metadata plus named schedule entities and property
+locations; amounts, interest ranges and business-position details require XLSX.
+Unsupported schedule layouts are rejected rather than silently omitted. Cover-only
+PDFs are archived with a warning and create no financial disclosure rows. Amendment
+uploads do not carry forward missing schedules. Existing filer/year protection
+also applies to PDFs. Bulk import remains XLSX-only. If confirmation is disabled,
+check the review acknowledgement; when every filing already exists there is
+nothing to import. Completeness warnings alone do not block confirmation.
 
 Bulk imports match exact names within the source agency's jurisdiction; new
 profiles are flagged for admin review. Only the latest submission per filer/year
@@ -269,6 +278,37 @@ npm --prefix server run backfill:legistar -- --city "Sonoma County" --start 2024
 Omit `--city` to backfill every enabled Legistar source. If `--start` is omitted,
 the command imports the previous two years. Re-running the command is safe:
 Legistar item IDs prevent duplicate agenda rows.
+
+#### Sonoma staff-report research pilot (no alert writes)
+
+The pilot independently compares supported NetFile workbook columns against the
+existing Form 700 parser, optionally reconciles stored schedule values inside a
+read-only database transaction, and compares agenda-only name occurrences with
+version-matched Legistar matter text and a bounded attachment sample:
+
+```bash
+node server/scripts/sonoma-pilot.mjs --workbook "/absolute/path/County of Sonoma -- Form 700 (2019).xlsx" --output /absolute/path/sonoma-report.json --start 2019-01-01 --end 2019-12-31 --max-matters 200 --max-pdfs 40 --database
+```
+
+Use `--audit-only` instead of dates for workbook/database reconciliation without
+Legistar requests. Omit `--database` to avoid database access entirely. Database
+mode uses the server environment configuration. Output is created privately and
+will not overwrite an existing file; keep these disclosure reports outside the
+repository. No filing, agenda, review, or conflict records are changed, and no LLM
+requests are made. Production sync is unchanged.
+
+Dates are explicit research bounds, **not verified legal reporting periods**.
+The 2019 workbook includes later amendments; the latest-submission parser does
+not carry older schedules forward. Supported-field agreement does not certify
+complete disclosure coverage. A-2 underlying income/assets and several other
+disclosed fields remain unsupported. Entity occurrences retain source/version,
+meeting/item, and PDF-page evidence but require identity, role, authority,
+participation, financial-relevance, and period review before becoming leads.
+Short/common names receive an ambiguity warning. Empty meetings, unavailable
+versions/PDFs, unversioned attachments, and sample omissions are reported rather
+than interpreted as no conflicts. Attachment versions/last-modified timestamps
+do not prove historical availability. PDFs are limited to 20 MB and Sonoma's
+Legistar hosts; image-only documents require a future OCR path.
 
 ### Admin source management and fictional engine check
 

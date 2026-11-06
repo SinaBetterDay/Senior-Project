@@ -23,3 +23,4 @@ Ingest **city council agendas** for cross-reference with Form 700 data.
 
 - `APIs/CONTEXT.md` (Python/helpers), `server/CONTEXT.md`
 - `../cron-jobs/CONTEXT.md` for nightly pulls
+- `sonoma-pilot-findings.md` for the write-free 2019 workbook/database and staff-report pilot; production sync does not yet enrich supporting documents.

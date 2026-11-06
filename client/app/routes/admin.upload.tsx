@@ -8,6 +8,7 @@ import { adminFetch, clearAdminSession, getAdminAccessToken } from "../adminAuth
 
 type Politician = { id: string; name: string; city: string; district: string };
 type UploadSummary = {
+  warnings?: string[];
   filing_id: string;
   politician_id: string;
   politician: { name: string; slug: string } | null;
@@ -48,9 +49,9 @@ export default function AdminUploadPage() {
     setSummary(null);
     setProgress(0);
     if (!candidate) return;
-    if (!candidate.name.toLowerCase().endsWith(".xlsx")) {
+    if (!/\.(xlsx|pdf)$/i.test(candidate.name)) {
       setFile(null);
-      setError("Only .xlsx files are accepted. Choose a Form 700 workbook.");
+      setError("Only .xlsx or .pdf files are accepted. Choose a Form 700 workbook or text-based PDF.");
       return;
     }
     if (candidate.size > 10 * 1024 * 1024) {
@@ -137,8 +138,8 @@ export default function AdminUploadPage() {
             <div className="mb-5 flex items-start gap-3">
               <div className="bg-emerald-100 p-2 text-emerald-900"><FileUp size={20} /></div>
               <div>
-                <h2 className="text-lg font-semibold">Upload filing workbook</h2>
-                <p className="mt-1 text-sm text-slate-600">Form 700 XLSX files only. Maximum size: 10 MB.</p>
+                <h2 className="text-lg font-semibold">Upload individual Form 700</h2>
+                <p className="mt-1 text-sm text-slate-600">Form 700 XLSX or text-based FPPC PDF. Maximum size: 10 MB. Scanned PDFs are not supported. PDF imports extract names and locations only; use XLSX for full structured schedule data. Cover-only PDFs create no disclosure records, and amendment schedules are not carried forward.</p>
               </div>
             </div>
 
@@ -159,11 +160,11 @@ export default function AdminUploadPage() {
               className={`flex min-h-52 w-full flex-col items-center justify-center border-2 border-dashed px-5 text-center transition ${dragging ? "border-emerald-700 bg-emerald-50" : "border-slate-300 bg-slate-50 hover:border-emerald-700"}`}
             >
               <Upload className="mb-3 text-emerald-800" size={28} />
-              <span className="font-semibold">{file ? file.name : "Drop an XLSX workbook here"}</span>
+              <span className="font-semibold">{file ? file.name : "Drop an XLSX workbook or PDF here"}</span>
               <span className="mt-1 text-sm text-slate-600">or select a file from your device</span>
               {file && <span className="mt-2 text-xs text-slate-500">{(file.size / (1024 * 1024)).toFixed(2)} MB</span>}
             </button>
-            <input ref={inputRef} className="sr-only" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={onFileChange} />
+            <input ref={inputRef} className="sr-only" type="file" accept=".xlsx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={onFileChange} />
 
             {error && <p className="mt-4 border-l-4 border-red-700 bg-red-50 px-3 py-2.5 text-sm text-red-800" role="alert">{safeMessage(error)}</p>}
 
@@ -185,6 +186,7 @@ export default function AdminUploadPage() {
             <section className="border border-emerald-300 bg-white p-5 sm:p-7" aria-live="polite">
               <p className="text-xs font-bold uppercase tracking-[0.1em] text-emerald-800">Ingestion complete</p>
               <h2 className="mt-1 text-lg font-semibold">Filing processed successfully</h2>
+              {summary.warnings && <ul className="mt-3 list-disc pl-5 text-sm text-amber-900">{summary.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul>}
               <dl className="mt-5 grid gap-x-8 gap-y-4 sm:grid-cols-2">
                 <div><dt className="text-xs uppercase text-slate-500">Filing ID</dt><dd className="mt-1 break-all font-mono text-sm">{summary.filing_id}</dd></div>
                 <div><dt className="text-xs uppercase text-slate-500">Politician matched</dt><dd className="mt-1 font-medium">{summary.politician?.name ?? summary.politician_id}</dd>

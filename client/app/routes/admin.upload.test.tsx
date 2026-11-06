@@ -27,3 +27,35 @@ it.each(["validation", "timeout"])("shows a specific %s failure and retry upload
   expect(screen.getByRole("button", { name: "Retry upload" })).toBeEnabled();
   expect(screen.queryByText("Upload complete")).not.toBeInTheDocument();
 });
+
+it.each(['select', 'drop'])('uploads a PDF via %s and displays parser warnings', async method => {
+  let xhr: any;
+  let body: FormData;
+  class MockRequest {
+    upload = {}; status = 200;
+    responseText = JSON.stringify({ filing_id: 'filing', politician_id: 'official', politician: null, schedules_parsed: { A: 0, B: 0, CDE: 0, A2: 0 }, warnings: ['This PDF contains no financial schedule pages.'] });
+    constructor() { xhr = this; }
+    open() {} setRequestHeader() {} send(value: FormData) { body = value; }
+  }
+  vi.stubGlobal('XMLHttpRequest', MockRequest);
+  const { container } = render(<Upload />);
+  const file = new File(['%PDF-1.4'], 'filing.PDF', { type: 'application/pdf' });
+  const input = container.querySelector('input[type="file"].sr-only')!;
+  expect(input.getAttribute('accept')).toContain('.pdf');
+  if (method === 'select') fireEvent.change(input, { target: { files: [file] } });
+  else fireEvent.drop(screen.getByRole('button', { name: /Drop an XLSX workbook or PDF/ }), { dataTransfer: { files: [file] } });
+  fireEvent.click(screen.getByRole('button', { name: 'Upload Form 700' }));
+  await waitFor(() => expect(xhr).toBeDefined());
+  expect(body!.get('file')).toBe(file);
+  xhr.onload();
+  expect(await screen.findByText('This PDF contains no financial schedule pages.')).toBeVisible();
+});
+
+it.each([['filing.txt', 1], ['filing.pdf', 10 * 1024 * 1024 + 1]])('rejects invalid or oversized %s files', async (name, size) => {
+  const { container } = render(<Upload />);
+  const file = new File(['x'], name);
+  Object.defineProperty(file, 'size', { value: size });
+  fireEvent.change(container.querySelector('input[type="file"].sr-only')!, { target: { files: [file] } });
+  expect(screen.getByRole('alert')).toHaveTextContent(name.endsWith('.txt') ? 'Only .xlsx or .pdf' : '10 MB');
+  expect(screen.getByRole('button', { name: 'Upload Form 700' })).toBeDisabled();
+});

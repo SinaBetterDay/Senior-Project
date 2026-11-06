@@ -13,6 +13,7 @@ export default function Form700BulkUpload() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
+  const readyCount = preview?.filings.filter(filing => filing.status === 'ready').length ?? 0;
 
   function chooseFile(event: ChangeEvent<HTMLInputElement>) {
     const candidate = event.target.files?.[0];
@@ -58,8 +59,10 @@ export default function Form700BulkUpload() {
           <td className="p-2">{Object.entries(filing.schedules_parsed).map(([schedule, count]) => `${schedule}: ${count}`).join(' · ')}</td>
           <td className="p-2">{filing.status === 'skipped' ? 'Existing filing — skip' : 'Ready'}</td>
         </tr>)}</tbody></table></div>
-      <label className="flex items-start gap-2"><input type="checkbox" checked={confirmed} disabled={busy} onChange={event => setConfirmed(event.target.checked)} /><span>I reviewed the selected submissions and completeness warnings.</span></label>
-      <button className="button-primary" type="button" disabled={busy || !confirmed || !preview.filings.some(f => f.status === 'ready')} onClick={() => submit('import')}>Confirm bulk import</button>
+      <p role="status">{readyCount > 0 ? `${readyCount} filing(s) ready to import. Warnings do not block import after acknowledgement.` : 'Nothing to import: all filings already exist or no ready filings were found. Existing filings are never overwritten.'}</p>
+      {readyCount > 0 && <label className="flex items-start gap-2"><input type="checkbox" checked={confirmed} disabled={busy} onChange={event => setConfirmed(event.target.checked)} /><span>I reviewed the selected submissions and completeness warnings.</span></label>}
+      {readyCount > 0 && !confirmed && <p id="bulk-confirm-help" className="text-sm text-slate-600">Check the review acknowledgement above to enable Confirm bulk import.</p>}
+      <button className="button-primary" type="button" aria-describedby={readyCount > 0 && !confirmed ? 'bulk-confirm-help' : undefined} disabled={busy || !confirmed || readyCount === 0} onClick={() => submit('import')}>Confirm bulk import</button>
     </div>}
     {result && <div className="mt-5" aria-live="polite"><h3 className="font-semibold">Import results</h3>
       <p>{result.imported} imported · {result.skipped} skipped · {result.failed} failed</p>

@@ -194,4 +194,24 @@ async function getVotes(baseUrl, matterId) {
   }));
 }
 
-export { getMeetings, getAgendaItems, getVotes };
+// Versions returns { Key: MatterTextId, Value: MatterVersion }; the text route
+// takes the text ID, NOT the version number. Keep these separate for provenance.
+async function getMatterVersions(baseUrl, matterId) {
+  const data = await apiRequest(`${baseUrl}/Matters/${encodeURIComponent(matterId)}/Versions`);
+  if (!Array.isArray(data)) throw new Error('Unexpected response format: expected matter versions');
+  return data;
+}
+
+async function getMatterText(baseUrl, matterId, textId) {
+  const data = await apiRequest(`${baseUrl}/Matters/${encodeURIComponent(matterId)}/Texts/${encodeURIComponent(textId)}`);
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Unexpected response format: expected matter text');
+  return data;
+}
+
+async function getMatterAttachments(baseUrl, matterId) {
+  const data = await apiRequest(`${baseUrl}/Matters/${encodeURIComponent(matterId)}/Attachments`);
+  if (!Array.isArray(data)) throw new Error('Unexpected response format: expected matter attachments');
+  return data;
+}
+
+export { getMeetings, getAgendaItems, getVotes, getMatterVersions, getMatterText, getMatterAttachments };

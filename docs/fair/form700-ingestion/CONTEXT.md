@@ -2,7 +2,15 @@
 
 ## Role
 
-**Form 700** files are **uploaded by admins** (raw **XLSX** archived in **Supabase Storage**). Parse with **SheetJS** (`xlsx` npm package) and map rows into your DB model per schedule.
+**Form 700** files are **uploaded by admins** (raw **XLSX or text-based PDF** archived in **Supabase Storage**). Workbooks use **SheetJS** (`xlsx` npm package); individual standard FPPC PDFs use `server/src/parsers/form700Pdf.js` and the existing `pdf-parse` dependency.
+
+PDF ingestion uses positioned text to isolate filer/reporting-year metadata and
+schedule entity names/property locations. It does not extract amounts, interest
+ranges or business-position details; XLSX remains the full structured-data path.
+Scanned/encrypted PDFs and unreadable schedule layouts are rejected. Cover-only
+PDFs are archived with explicit warnings and no schedule rows. Amendment uploads
+do not merge prior schedules. The single-filing endpoint returns PDF `warnings`,
+displayed by the upload page. Original PDF archives use `application/pdf`.
 
 ## Schedules (domain vocabulary)
 

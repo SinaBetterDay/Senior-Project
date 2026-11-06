@@ -48,7 +48,7 @@ export async function archiveWorkbook(buffer, filename, { filingId, politicianId
   const path = buildWorkbookPath(filename, { filingId, politicianId });
 
   const { error } = await supabase.storage.from(FORM700_BUCKET).upload(path, buffer, {
-    contentType: XLSX_MIME,
+    contentType: /\.pdf$/i.test(filename) ? 'application/pdf' : XLSX_MIME,
     upsert: false,
   });
 
