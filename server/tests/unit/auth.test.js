@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+vi.mock('../../src/lib/adminAccess.js', () => ({ membershipFor: vi.fn() }));
+import { membershipFor } from '../../src/lib/adminAccess.js';
+
 vi.mock('../../src/lib/supabase.js', () => ({
   supabase: {
     auth: {
@@ -9,7 +12,7 @@ vi.mock('../../src/lib/supabase.js', () => ({
 }));
 
 import { supabase } from '../../src/lib/supabase.js';
-import { requireAdmin, extractBearerToken } from '../../src/lib/auth.js';
+import { requireAdmin, requireOwner, requireAuthenticated, extractBearerToken } from '../../src/lib/auth.js';
 
 function mockRes() {
   const res = {};
@@ -25,6 +28,8 @@ function mockReq(headers = {}) {
 describe('requireAdmin', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.FAIR_ADMIN_EMAIL = 'admin@fppc.ca.gov';
+    membershipFor.mockResolvedValue({ userId: 'user-123', role: 'owner', active: true });
   });
 
   it('calls next() and sets req.user for a valid token', async () => {
@@ -52,7 +57,7 @@ describe('requireAdmin', () => {
 
     expect(supabase.auth.getUser).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith({ error: 'unauthorized' });
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'authentication_required' }));
     expect(next).not.toHaveBeenCalled();
     expect(req.user).toBeUndefined();
   });
@@ -66,7 +71,7 @@ describe('requireAdmin', () => {
 
     expect(supabase.auth.getUser).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith({ error: 'unauthorized' });
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'authentication_required' }));
     expect(next).not.toHaveBeenCalled();
   });
 
@@ -84,12 +89,28 @@ describe('requireAdmin', () => {
 
     expect(supabase.auth.getUser).toHaveBeenCalledWith('expired-jwt');
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith({ error: 'unauthorized' });
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'authentication_required' }));
     expect(next).not.toHaveBeenCalled();
     expect(req.user).toBeUndefined();
   });
 
-  it('returns 401 (never throws) when getUser rejects', async () => {
+  it('returns 403 for a valid user that is not the configured admin', async () => {
+    membershipFor.mockResolvedValue(null);
+    supabase.auth.getUser.mockResolvedValue({
+      data: { user: { id: 'user-456', email: 'other@fppc.ca.gov' } },
+      error: null,
+    });
+    const res = mockRes();
+    const next = vi.fn();
+
+    await requireAdmin(mockReq({ authorization: 'Bearer valid-jwt' }), res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'admin_forbidden' }));
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('returns 503 (never throws) when getUser rejects', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     supabase.auth.getUser.mockRejectedValue(new Error('network down'));
 
@@ -99,10 +120,52 @@ describe('requireAdmin', () => {
 
     await expect(requireAdmin(req, res, next)).resolves.not.toThrow();
 
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith({ error: 'unauthorized' });
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'auth_unavailable' }));
     expect(next).not.toHaveBeenCalled();
     errorSpy.mockRestore();
+  });
+
+  it('returns 503 for a Supabase rate-limit or service error', async () => {
+    supabase.auth.getUser.mockResolvedValue({ data: { user: null }, error: { status: 503 } });
+    const res = mockRes(); const next = vi.fn();
+    await requireAdmin(mockReq({ authorization: 'Bearer token' }), res, next);
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('fails closed without treating missing server configuration as a bad session', async () => {
+    delete process.env.FAIR_ADMIN_EMAIL;
+    supabase.auth.getUser.mockResolvedValue({ data: { user: { id: 'first-user' } }, error: null });
+    membershipFor.mockRejectedValue(new Error('First owner not configured'));
+    const res = mockRes();
+    await requireAdmin(mockReq({ authorization: 'Bearer token' }), res, vi.fn());
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(membershipFor).toHaveBeenCalled();
+  });
+  it('accepts database members without the bootstrap environment variable', async () => {
+    delete process.env.FAIR_ADMIN_EMAIL;
+    supabase.auth.getUser.mockResolvedValue({ data: { user: { id: 'user-123' } }, error: null });
+    const next = vi.fn(); const req = mockReq({ authorization: 'Bearer token' });
+    await requireAdmin(req, mockRes(), next);
+    expect(next).toHaveBeenCalledOnce();
+    expect(req.adminMember.role).toBe('owner');
+  });
+  it('requires owner privileges without invalidating an admin session', () => {
+    const res = mockRes(); const next = vi.fn();
+    requireOwner({ adminMember: { active: true, role: 'admin' } }, res, next);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'owner_required' }));
+    expect(next).not.toHaveBeenCalled();
+    requireOwner({ adminMember: { active: true, role: 'owner' } }, mockRes(), next);
+    expect(next).toHaveBeenCalledOnce();
+  });
+  it('permits authenticated invitation acceptance without an existing membership', async () => {
+    supabase.auth.getUser.mockResolvedValue({ data: { user: { id: 'invitee' } }, error: null });
+    const next = vi.fn();
+    await requireAuthenticated(mockReq({ authorization: 'Bearer token' }), mockRes(), next);
+    expect(next).toHaveBeenCalledOnce();
+    expect(membershipFor).not.toHaveBeenCalled();
   });
 });
 

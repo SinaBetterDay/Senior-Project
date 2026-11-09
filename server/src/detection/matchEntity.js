@@ -1,6 +1,10 @@
 import Fuse from "fuse.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { MATCH_BANDS, isExcludedEntity } from "../config/conflictRules.js";
+import {
+  ENTITY_RESOLUTION,
+  MATCH_BANDS,
+  isExcludedEntity,
+} from "../config/conflictRules.js";
 import {
   areSameEntity,
   normalizeEntityName,
@@ -78,42 +82,82 @@ function getGeminiApiKey() {
   return process.env.GEMINI_API_KEY || process.env.LLM_API_KEY || "";
 }
 
-export async function resolveEntityWithGemini(name, agendaText) {
-  const apiKey = getGeminiApiKey();
-  if (!apiKey) return false;
+const resolutionMetrics = {
+  requestCount: 0,
+  fallbackCount: 0,
+  totalLatencyMs: 0,
+  estimatedInputTokens: 0,
+};
 
-  try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const prompt = `
-You are helping decide whether an agenda item refers to a named entity from a Form 700 disclosure.
-
-Return ONLY JSON in this format:
-{
-  "isMatch": true
+export function getEntityResolutionMetrics() {
+  const averageLatencyMs = resolutionMetrics.requestCount
+    ? Math.round(resolutionMetrics.totalLatencyMs / resolutionMetrics.requestCount)
+    : 0;
+  return { ...resolutionMetrics, averageLatencyMs };
 }
 
-Use true if the agenda item is about this entity.
-Use false if it is a different organization or the entity is not referenced.
+export function resetEntityResolutionMetrics() {
+  Object.assign(resolutionMetrics, {
+    requestCount: 0,
+    fallbackCount: 0,
+    totalLatencyMs: 0,
+    estimatedInputTokens: 0,
+  });
+}
 
-Entity name: "${name}"
-Agenda item text: "${String(agendaText || "").slice(0, 4000)}"
+function buildResolutionPrompt(name, agendaText) {
+  const limitedAgendaText = String(agendaText || "").slice(
+    0,
+    ENTITY_RESOLUTION.MAX_AGENDA_TEXT_CHARS,
+  );
+  return `You determine whether an agenda item refers to a Form 700 entity.
 
-Rules:
-- Ignore punctuation, casing, and suffixes such as LLC, Inc, Corp, Corporation, Ltd, Co, Company.
-- Do not match clearly different organizations.
-`;
+Return only JSON in this exact shape: {"isMatch":true}
+Use false when the organizations are different or the entity is not referenced.
 
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
-    const cleanedText = text
-      .replace(/```json/g, "")
-      .replace(/```/g, "")
-      .trim();
-    const parsed = JSON.parse(cleanedText);
-    return parsed.isMatch === true;
-  } catch {
+Entity name: ${name}
+Agenda item text: ${limitedAgendaText}`;
+}
+
+function withTimeout(promise, timeoutMs) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error("entity resolution timed out")), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+function parseGeminiMatch(text) {
+  const cleaned = String(text || "").replace(/```json|```/g, "").trim();
+  const parsed = JSON.parse(cleaned);
+  if (typeof parsed?.isMatch !== "boolean") throw new Error("invalid Gemini response");
+  return parsed.isMatch;
+}
+
+export async function resolveEntityWithGemini(name, agendaText) {
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) {
+    resolutionMetrics.fallbackCount += 1;
     return false;
+  }
+
+  const startedAt = performance.now();
+  const prompt = buildResolutionPrompt(name, agendaText);
+  resolutionMetrics.requestCount += 1;
+  resolutionMetrics.estimatedInputTokens += Math.ceil(prompt.length / 4);
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: ENTITY_RESOLUTION.GEMINI_MODEL });
+    const result = await withTimeout(
+      model.generateContent(prompt),
+      ENTITY_RESOLUTION.REQUEST_TIMEOUT_MS,
+    );
+    return parseGeminiMatch(result.response.text());
+  } catch {
+    resolutionMetrics.fallbackCount += 1;
+    return false;
+  } finally {
+    resolutionMetrics.totalLatencyMs += Math.round(performance.now() - startedAt);
   }
 }
 

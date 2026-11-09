@@ -5,9 +5,14 @@ import { prisma } from "../lib/prisma.js";
 
 const router = express.Router();
 
-router.get("/", async (_req, res) => {
+router.get("/", async (_req, res, next) => {
   try {
+    const requestedLimit = Number.parseInt(String(_req.query.limit ?? ""), 10);
+    const take = Number.isFinite(requestedLimit)
+      ? Math.max(1, Math.min(requestedLimit, 100))
+      : undefined;
     const agendaItems = await prisma.agendaItem.findMany({
+      where: { isDemo: false },
       select: {
         id: true,
         title: true,
@@ -17,13 +22,14 @@ router.get("/", async (_req, res) => {
         sourceType: true,
         _count: {
           select: {
-            conflicts: true,
+            conflicts: { where: { OR: [{ eligibilityStatus: null }, { eligibilityStatus: "active" }] } },
           },
         },
       },
       orderBy: {
         meetingDate: "desc",
       },
+      ...(take ? { take } : {}),
     });
 
     const data = agendaItems.map((item) => ({
@@ -38,11 +44,7 @@ router.get("/", async (_req, res) => {
 
     res.status(200).json({ data });
   } catch (error) {
-    console.error("Failed to fetch agenda items:", error);
-
-    res.status(500).json({
-      error: "Failed to fetch agenda items",
-    });
+    next(error);
   }
 });
 
@@ -51,6 +53,7 @@ router.get("/:id", async (req, res) => {
     const agendaItem = await prisma.agendaItem.findUnique({
       where: {
         id: req.params.id,
+        isDemo: false,
       },
       select: {
         id: true,
@@ -63,6 +66,7 @@ router.get("/:id", async (req, res) => {
         sourceType: true,
         bodyName: true,
         conflicts: {
+          where: { OR: [{ eligibilityStatus: null }, { eligibilityStatus: "active" }] },
           select: {
             id: true,
             conflictType: true,

@@ -1,3 +1,6 @@
+import RequestError from "../components/RequestError";
+import Form700BulkUpload from "../components/Form700BulkUpload";
+import { safeMessage, TIMEOUT_MESSAGE, UPLOAD_TIMEOUT_MS } from "../lib/request";
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { FileUp, Upload } from "lucide-react";
 import { AdminGuard, AdminNav } from "../adminComponents";
@@ -5,6 +8,7 @@ import { adminFetch, clearAdminSession, getAdminAccessToken } from "../adminAuth
 
 type Politician = { id: string; name: string; city: string; district: string };
 type UploadSummary = {
+  warnings?: string[];
   filing_id: string;
   politician_id: string;
   politician: { name: string; slug: string } | null;
@@ -13,11 +17,13 @@ type UploadSummary = {
 
 function errorMessage(payload: unknown) {
   return typeof payload === "object" && payload && "error" in payload
-    ? String(payload.error)
+    ? safeMessage(payload.error)
     : "The upload could not be completed.";
 }
 
 export default function AdminUploadPage() {
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const [file, setFile] = useState<File | null>(null);
   const [politicians, setPoliticians] = useState<Politician[]>([]);
   const [politicianId, setPoliticianId] = useState("");
@@ -29,22 +35,23 @@ export default function AdminUploadPage() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    setLoadError(null);
     adminFetch("/api/admin/politicians")
       .then(async (response) => {
         if (!response.ok) throw new Error("Could not load politicians.");
         const result = await response.json();
         setPoliticians(result.data);
       })
-      .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Could not load politicians."));
-  }, []);
+      .catch((loadError) => setLoadError(safeMessage(loadError, "Could not load politicians.")));
+  }, [attempt]);
 
   function chooseFile(candidate: File | undefined) {
     setSummary(null);
     setProgress(0);
     if (!candidate) return;
-    if (!candidate.name.toLowerCase().endsWith(".xlsx")) {
+    if (!/\.(xlsx|pdf)$/i.test(candidate.name)) {
       setFile(null);
-      setError("Only .xlsx files are accepted. Choose a Form 700 workbook.");
+      setError("Only .xlsx or .pdf files are accepted. Choose a Form 700 workbook or text-based PDF.");
       return;
     }
     if (candidate.size > 10 * 1024 * 1024) {
@@ -107,6 +114,8 @@ export default function AdminUploadPage() {
           resolve(payload as UploadSummary);
         };
         request.onerror = () => reject(new Error("Network error while uploading the workbook."));
+        request.timeout = UPLOAD_TIMEOUT_MS;
+        request.ontimeout = () => reject(new Error(TIMEOUT_MESSAGE + " The upload may still finish; check the official’s filings before uploading again."));
         request.send(body);
       });
       setProgress(100);
@@ -123,16 +132,33 @@ export default function AdminUploadPage() {
     <AdminGuard>
       <div className="min-h-screen bg-slate-50 text-slate-900">
         <AdminNav title="Form 700 upload" />
-        <main className="mx-auto max-w-5xl space-y-6 px-5 py-8">
-          <section className="surface p-5 sm:p-7">
-            <div className="mb-5 flex items-start gap-3">
-              <div className="bg-emerald-100 p-2 text-emerald-900"><FileUp size={20} /></div>
+        <main className="mx-auto max-w-7xl space-y-6 px-5 py-8">
+          <header>
+            <h1 className="text-2xl font-bold sm:text-3xl">Upload Form 700 disclosures</h1>
+            <p className="mt-2 text-slate-600">Choose the upload that matches your file: a multi-official export or one official’s filing.</p>
+          </header>
+          <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
+          <Form700BulkUpload />
+          <section className="surface min-w-0 border-t-4 border-t-emerald-700 p-5 sm:p-7" aria-labelledby="individual-upload-title">
+            <div className="flex items-start gap-3">
+              <div className="rounded-lg bg-emerald-100 p-2 text-emerald-900"><FileUp size={24} aria-hidden="true" /></div>
               <div>
-                <h2 className="text-lg font-semibold">Upload filing workbook</h2>
-                <p className="mt-1 text-sm text-slate-600">Form 700 XLSX files only. Maximum size: 10 MB.</p>
+                <p className="text-xs font-bold uppercase tracking-wide text-emerald-800">One official · XLSX or PDF</p>
+                <h2 id="individual-upload-title" className="mt-1 text-xl font-semibold">Upload individual Form 700</h2>
               </div>
             </div>
+            <p className="mt-4 text-sm text-slate-700">Use this for one official’s filing for one reporting year. Match the official automatically or select a profile below.</p>
+            <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950">
+              <p className="font-semibold">What goes here?</p>
+              <p className="mt-1">One cover-page .xlsx workbook or text-based FPPC Form 700 .pdf. Maximum 10 MB. No scanned PDFs.</p>
+              <p className="mt-2 font-medium">Have a county or agency workbook with multiple officials? Use the bulk import panel instead.</p>
+            </div>
+            <details className="my-4 text-sm text-slate-600">
+              <summary className="cursor-pointer font-medium text-emerald-800">PDF parsing and amendment limitations</summary>
+              <p className="mt-2">PDF imports extract names and locations only; use XLSX for full structured schedule data. Cover-only PDFs create no disclosure records, and amendment schedules are not carried forward.</p>
+            </details>
 
+            {loadError && <RequestError message={loadError} onRetry={() => setAttempt(value => value + 1)} />}
             <label className="mb-2 block text-sm font-medium" htmlFor="politician">Match to politician <span className="font-normal text-slate-500">(optional)</span></label>
             <select id="politician" value={politicianId} onChange={(event) => setPoliticianId(event.target.value)} className="field mb-5 max-w-xl">
               <option value="">Automatically match from cover page</option>
@@ -146,35 +172,38 @@ export default function AdminUploadPage() {
               onDragOver={(event) => event.preventDefault()}
               onDragLeave={() => setDragging(false)}
               onDrop={onDrop}
-              className={`flex min-h-52 w-full flex-col items-center justify-center border-2 border-dashed px-5 text-center transition ${dragging ? "border-emerald-700 bg-emerald-50" : "border-slate-300 bg-slate-50 hover:border-emerald-700"}`}
+              disabled={uploading}
+              className={`flex min-h-52 w-full flex-col items-center justify-center rounded-xl border-2 border-dashed px-5 text-center transition focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 ${dragging ? "border-emerald-700 bg-emerald-100" : "border-emerald-300 bg-emerald-50/50 hover:border-emerald-700 hover:bg-emerald-50"}`}
             >
               <Upload className="mb-3 text-emerald-800" size={28} />
-              <span className="font-semibold">{file ? file.name : "Drop an XLSX workbook here"}</span>
-              <span className="mt-1 text-sm text-slate-600">or select a file from your device</span>
+              <span className="font-semibold">{file ? file.name : "Drop an XLSX workbook or PDF here"}</span>
+              <span className="mt-3 rounded-lg border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-900">{file ? 'Change individual filing' : 'Choose individual XLSX or PDF'}</span>
               {file && <span className="mt-2 text-xs text-slate-500">{(file.size / (1024 * 1024)).toFixed(2)} MB</span>}
             </button>
-            <input ref={inputRef} className="sr-only" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={onFileChange} />
+            <input ref={inputRef} className="sr-only" type="file" aria-label="Individual Form 700 file (XLSX or PDF, maximum 10 MB)" accept=".xlsx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={uploading} onChange={onFileChange} />
 
-            {error && <p className="mt-4 border-l-4 border-red-700 bg-red-50 px-3 py-2.5 text-sm text-red-800" role="alert">{error}</p>}
+            {error && <p className="mt-4 border-l-4 border-red-700 bg-red-50 px-3 py-2.5 text-sm text-red-800" role="alert">{safeMessage(error)}</p>}
 
             {(uploading || progress > 0) && (
               <div className="mt-5">
-                <div className="mb-1 flex justify-between text-sm"><span>{uploading ? "Uploading and processing" : "Upload complete"}</span><span>{progress}%</span></div>
+                <div className="mb-1 flex justify-between text-sm"><span>{uploading ? "Uploading and processing" : error ? "Upload not confirmed" : "Upload complete"}</span><span>{progress}%</span></div>
                 <progress className="h-2 w-full accent-emerald-800" max={100} value={progress} aria-label="Upload progress" />
               </div>
             )}
 
             <div className="mt-5 flex justify-end">
-              <button type="button" onClick={uploadFile} disabled={!file || uploading} className="button-primary">
-                {uploading ? "Processing..." : "Upload Form 700"}
+              <button type="button" onClick={uploadFile} disabled={!file || uploading} className="inline-flex min-h-12 w-full items-center justify-center rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-50">
+                {uploading ? "Processing..." : error && file ? "Retry upload" : "Upload Form 700"}
               </button>
             </div>
           </section>
+          </div>
 
           {summary && (
             <section className="border border-emerald-300 bg-white p-5 sm:p-7" aria-live="polite">
               <p className="text-xs font-bold uppercase tracking-[0.1em] text-emerald-800">Ingestion complete</p>
               <h2 className="mt-1 text-lg font-semibold">Filing processed successfully</h2>
+              {summary.warnings && <ul className="mt-3 list-disc pl-5 text-sm text-amber-900">{summary.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul>}
               <dl className="mt-5 grid gap-x-8 gap-y-4 sm:grid-cols-2">
                 <div><dt className="text-xs uppercase text-slate-500">Filing ID</dt><dd className="mt-1 break-all font-mono text-sm">{summary.filing_id}</dd></div>
                 <div><dt className="text-xs uppercase text-slate-500">Politician matched</dt><dd className="mt-1 font-medium">{summary.politician?.name ?? summary.politician_id}</dd>

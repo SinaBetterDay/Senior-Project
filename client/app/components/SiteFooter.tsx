@@ -3,7 +3,7 @@ import { Link } from "react-router";
 export function SiteFooter() {
   return (
     <footer className="border-t border-slate-200 bg-white">
-      <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-8 text-sm text-slate-600 sm:px-6 md:flex-row md:items-center md:justify-between lg:px-8">
+      <div className="site-container flex flex-col gap-5 py-8 text-sm text-slate-600 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="font-semibold text-slate-900">FAIR</p>
           <p className="mt-1">Financial Accountability &amp; Interest Review</p>

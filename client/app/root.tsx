@@ -6,6 +6,7 @@ import {
   Scripts,
   ScrollRestoration,
   useLocation,
+  Navigate,
 } from "react-router";
 import { Toaster } from "react-hot-toast";
 
@@ -13,6 +14,7 @@ import type { Route } from "./+types/root";
 import "./app.css";
 import { SiteHeader } from "./components/SiteHeader";
 import { SiteFooter } from "./components/SiteFooter";
+import NotFound from "./components/NotFound";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -62,19 +64,19 @@ export default function App() {
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
+  if ((isRouteErrorResponse(error) || error instanceof Response) && error.status === 404) return <NotFound />;
+  if (isRouteErrorResponse(error) && [401, 403].includes(error.status)) return <Navigate to="/admin/login?reason=forbidden" replace />;
   let message = "Oops!";
   let details = "An unexpected error occurred.";
-  let stack: string | undefined;
+
 
   if (isRouteErrorResponse(error)) {
     message = error.status === 404 ? "404" : "Error";
     details =
       error.status === 404
         ? "The requested page could not be found."
-        : error.statusText || details;
-  } else if (import.meta.env.DEV && error && error instanceof Error) {
-    details = error.message;
-    stack = error.stack;
+        : details;
+
   }
 
   return (
@@ -83,11 +85,8 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
       <p className="eyebrow">FAIR</p>
       <h1 className="mt-3 text-3xl font-bold tracking-tight">{message}</h1>
       <p className="mt-3 text-slate-600">{details}</p>
-      {stack && (
-        <pre className="w-full overflow-x-auto p-4">
-          <code>{stack}</code>
-        </pre>
-      )}
+      <button className="button-secondary mt-6" onClick={() => window.location.reload()}>Retry</button>
+      <a href="/" className="button-primary mt-6 ml-3">Return home</a>
       </section>
     </main>
   );

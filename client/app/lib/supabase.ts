@@ -1,3 +1,4 @@
+import { request, safeMessage } from "./request";
 type SupabaseUser = {
   id: string;
 };
@@ -22,7 +23,7 @@ function getAuthConfig() {
 
 async function authRequest<T>(path: string, body?: Record<string, string>, accessToken?: string): Promise<T> {
   const { url, anonKey } = getAuthConfig();
-  const response = await fetch(`${url}/auth/v1/${path}`, {
+  const response = await request(`${url}/auth/v1/${path}`, {
     method: body ? "POST" : "GET",
     headers: {
       apikey: anonKey,

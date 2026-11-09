@@ -27,6 +27,14 @@ describe('runNightlyLegistarSyncCommand', () => {
     );
   });
 
+  it('fails explicitly when a concurrent run was skipped', async () => {
+    const run = vi.fn().mockResolvedValue({ skippedRun: true, failures: 0 });
+
+    await expect(runNightlyLegistarSyncCommand({ run, log: vi.fn() })).rejects.toThrow(
+      'Legistar sync was skipped because another run is still active',
+    );
+  });
+
   it('propagates an unexpected sync error', async () => {
     const error = new Error('database unavailable');
     const run = vi.fn().mockRejectedValue(error);

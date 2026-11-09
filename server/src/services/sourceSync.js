@@ -1,123 +1,213 @@
-import { ApifyClient } from "apify-client";
-import { prisma } from "../lib/prisma.js";
-import { getAgendaItems, getMeetings } from "../ingestion/legistarApi.js";
+import { ApifyClient } from 'apify-client';
+import { prisma } from '../lib/prisma.js';
+import { fetchLegistarAgendaItemsForDataSource } from '../ingestion/legistar.js';
+import { legistarItemKey } from '../ingestion/legistarIdentity.js';
+import { ingestApifyAgendaItems } from '../ingestion/apifyAgenda.js';
+import { upsertAgendaItems } from '../ingestion/upsertAgendaItems.js';
+import { buildApifyActorInput } from '../ingestion/apifyActorInput.js';
+import { detectConflictsForAgendaItems } from '../detection/detectConflicts.js';
+import {
+  detectAgendaConflictsSafely,
+} from '../detection/detectAgendaConflictsSafely.js';
+import { runSyncJob } from '../jobs/syncJobRun.js';
 
-export async function runLegistarSource(source) {
-  const meetings = await getMeetings(source.legistarBaseUrl, 50);
-  const rows = [];
+async function runLegistarSource(source, options = {}) {
+  const { allItems } = await fetchLegistarAgendaItemsForDataSource(source, {
+    lookbackDays: 30,
+    ...options,
+  });
 
-  for (const meeting of meetings) {
-    const meetingId = meeting.EventId ?? meeting.id;
-    if (meetingId == null) continue;
+  const rows = allItems.flatMap(({ item, meeting, meetingId }) => {
+    const itemId = item.EventItemId ?? item.id;
+    if (itemId == null) return [];
 
-    const items = await getAgendaItems(source.legistarBaseUrl, meetingId);
-    for (const item of items) {
-      const itemId = item.EventItemId ?? item.id;
-      if (itemId == null) continue;
-      const rawMeetingDate = meeting.EventDate ?? meeting.date ?? null;
-      const meetingDate = rawMeetingDate && !Number.isNaN(Date.parse(rawMeetingDate))
+    const rawMeetingDate = meeting.EventDate ?? meeting.date ?? null;
+    const meetingDate =
+      rawMeetingDate && !Number.isNaN(Date.parse(rawMeetingDate))
         ? new Date(rawMeetingDate)
         : null;
 
-      rows.push({
+    const title =
+      item.EventItemTitle ??
+      item.EventItemMatterName ??
+      item.MatterName ??
+      item.Title ??
+      item.title ??
+      'Untitled agenda item';
+
+    const description =
+      item.EventItemAgendaNote ?? item.AgendaNote ?? null;
+
+    const itemText = [
+      title,
+      description,
+      item.EventItemMinutesNote ?? item.MinutesNote,
+      item.EventItemActionText,
+    ]
+      .filter((value) => value != null && String(value).trim() !== '')
+      .join('\n');
+
+    return [
+      {
         sourceType: 'legistar',
-        legistarItemId: String(itemId),
+        legistarItemId: legistarItemKey(source.legistarBaseUrl, itemId),
         legistarEventId: String(meetingId),
-        legistarMatterId: item.MatterId == null ? null : String(item.MatterId),
+        legistarMatterId:
+          item.EventItemMatterId != null
+            ? String(item.EventItemMatterId)
+            : item.MatterId != null
+              ? String(item.MatterId)
+              : null,
         cityName: source.cityName,
-        title: item.EventItemTitle ?? item.MatterName ?? item.Title ?? item.title ?? 'Untitled agenda item',
-        agendaNumber: item.EventItemAgendaNumber ?? item.AgendaNumber ?? null,
+        cityId: source.id,
+        title,
+        description,
+        itemText: itemText || null,
+        sourceUrl:
+          meeting.EventInSiteURL ?? meeting.EventAgendaFile ?? null,
+        agendaNumber:
+          item.EventItemAgendaNumber ?? item.AgendaNumber ?? null,
         bodyName: meeting.EventBodyName ?? meeting.bodyName ?? null,
         meetingDate,
-        eventItemPassedFlag: item.EventItemPassedFlag == null ? null : Boolean(item.EventItemPassedFlag),
+        eventItemPassedFlag:
+          item.EventItemPassedFlag == null
+            ? null
+            : Boolean(item.EventItemPassedFlag),
         legistarItemPayload: item,
-      });
-    }
-  }
+      },
+    ];
+  });
 
-  const result = rows.length
-    ? await prisma.agendaItem.createMany({ data: rows, skipDuplicates: true })
-    : { count: 0 };
+  const result = await upsertAgendaItems(
+    prisma,
+    rows,
+    (row) => ({ legistarItemId: row.legistarItemId }),
+  );
+
+  const detection = await detectAgendaConflictsSafely(
+    result.changedIds,
+    detectConflictsForAgendaItems,
+    { prisma },
+  );
+
   return {
     itemsFound: rows.length,
-    itemsInserted: result.count,
-    itemsSkipped: rows.length - result.count,
+    itemsInserted: result.inserted,
+    itemsSkipped: result.skipped,
+    ...detection,
   };
 }
 
-export async function runApifySource(source) {
-  if (!process.env.APIFY_TOKEN) throw new Error('Apify is not configured on the server (APIFY_TOKEN is missing).');
+async function runApifySource(source, syncLogId, jobRunId) {
+  if (!process.env.APIFY_TOKEN) {
+    throw new Error(
+      'Apify is not configured on the server (APIFY_TOKEN is missing).',
+    );
+  }
 
-  const client = new ApifyClient({ token: process.env.APIFY_TOKEN });
-  const run = await client.actor(source.apifyActorId).call({
-    cityName: source.cityName,
-    ...(source.startUrl ? { startUrl: source.startUrl } : {}),
-  }, { timeout: 600 });
-  if (run.status && run.status !== 'SUCCEEDED') throw new Error(`Actor ${run.status}: ${run.statusMessage || 'Check the Apify run log.'}`);
+  const actorId = source.apifyActorId ?? process.env.APIFY_ACTOR_ID;
+
+  if (!actorId) {
+    throw new Error(
+      'Apify is not configured on the server (APIFY_ACTOR_ID is missing).',
+    );
+  }
+
+  const client = new ApifyClient({
+    token: process.env.APIFY_TOKEN,
+  });
+
+  const run = await client
+    .actor(actorId)
+    .call(buildApifyActorInput(source), { timeout: 600 });
+
+  if (run.status && run.status !== 'SUCCEEDED') {
+    throw new Error(
+      `Actor ${run.status}: ${
+        run.statusMessage || 'Check the Apify run log.'
+      }`,
+    );
+  }
+
+  if (!run.defaultDatasetId) {
+    throw new Error('Apify actor run did not return a dataset ID.');
+  }
+
   const items = [];
+
   for (let offset = 0; ; offset += 1000) {
-    const page = await client.dataset(run.defaultDatasetId).listItems({ limit: 1000, offset });
+    const page = await client
+      .dataset(run.defaultDatasetId)
+      .listItems({ limit: 1000, offset });
+
     items.push(...(page.items ?? []));
+
     if ((page.items?.length ?? 0) < 1000) break;
   }
-  const existing = await prisma.agendaItem.findMany({
-    where: { cityId: source.id },
-    select: { itemText: true },
-  });
-  const existingItemTexts = new Set(existing.map((item) => item.itemText).filter(Boolean));
-  const seenItemTexts = new Set();
-  const rows = items.flatMap((item) => {
-    const url = item.pdf_url ?? item.pdfUrl ?? item.agenda_url ?? item.url ?? null;
-    const title = item.document_title ?? item.title ?? item.agenda_title ?? item.agendaTitle ?? item.name ?? (url ? 'Agenda PDF' : null);
-    const itemText = url ?? item.text ?? item.description ?? JSON.stringify(item);
-    if (existingItemTexts.has(itemText) || seenItemTexts.has(itemText)) return [];
-    seenItemTexts.add(itemText);
 
-    const date = item.meeting_date ?? item.meetingDate ?? null;
-    return [{
-      sourceType: 'apify',
-      cityId: source.id,
-      cityName: source.cityName,
-      title: String(title ?? 'Untitled agenda item'),
-      description: item.description ? String(item.description) : null,
-      itemText: String(itemText),
-      meetingDate: date && !Number.isNaN(Date.parse(date)) ? new Date(date) : null,
-    }];
+  const result = await ingestApifyAgendaItems({
+    items,
+    source: { ...source, apifyActorId: actorId },
+    syncLogId,
+    jobRunId,
+    skipJobLock: true,
+    log: console.log,
   });
 
-  if (rows.length) await prisma.agendaItem.createMany({ data: rows });
-  return {
-    itemsFound: items.length,
-    itemsInserted: rows.length,
-    itemsSkipped: items.length - rows.length,
-  };
+  if (result.skippedRun) {
+    throw new Error('Another sync for this city is already active.');
+  }
+
+  return result;
 }
 
-export async function executeSourceSync(source, syncLogId) {
+async function performSourceSync(source, syncLogId, options = {}) {
   try {
-    const result =
-      source.sourceType.toLowerCase() === "legistar"
-        ? await runLegistarSource(source)
-        : await runApifySource(source);
+    await prisma.syncLog.update({
+      where: { id: syncLogId },
+      data: { jobRunId: options.jobRunId },
+    });
 
+    if (source.sourceType.toLowerCase() !== 'legistar') {
+      const result = await runApifySource(
+        source,
+        syncLogId,
+        options.jobRunId,
+      );
+
+      return {
+        failed: result.errors?.length > 0,
+      };
+    }
+
+    const result = await runLegistarSource(source, options);
     const completedAt = new Date();
 
     await prisma.$transaction([
       prisma.syncLog.update({
         where: { id: syncLogId },
         data: {
-          status: "success",
+          status: 'success',
           completedAt,
           itemsFound: result.itemsFound,
           itemsInserted: result.itemsInserted,
           itemsSkipped: result.itemsSkipped,
+          conflictCandidates: result.conflictCandidates ?? 0,
+          conflictsDetected: result.conflictsDetected ?? 0,
+          conflictsSkipped: result.conflictsSkipped ?? 0,
+          detectionErrors: result.detectionErrors ?? [],
         },
       }),
       prisma.dataSource.update({
         where: { id: source.id },
-        data: { lastSyncedAt: completedAt, lastError: null },
+        data: {
+          lastSyncedAt: completedAt,
+          lastError: null,
+        },
       }),
     ]);
+
+    return { failed: false };
   } catch (error) {
     const completedAt = new Date();
 
@@ -125,15 +215,70 @@ export async function executeSourceSync(source, syncLogId) {
       prisma.syncLog.update({
         where: { id: syncLogId },
         data: {
-          status: "failed",
+          status: 'failed',
           completedAt,
-          errors: { message: error.message },
+          errors: [{ message: error.message }],
         },
       }),
       prisma.dataSource.update({
         where: { id: source.id },
-        data: { lastError: error.message },
+        data: {
+          lastError: error.message,
+          lastDocumentsFound: 0,
+          lastPdfsFetched: 0,
+          lastItemsInserted: 0,
+          lastItemsSkipped: 0,
+          lastSyncErrors: [{ message: error.message }],
+        },
       }),
     ]);
+
+    return { failed: true };
   }
+}
+
+export async function executeSourceSync(source, syncLogId, options = {}) {
+  const isLegistar = source.sourceType.toLowerCase() === 'legistar';
+  const jobKey = isLegistar
+    ? 'legistar'
+    : `apify-city:${source.id}`;
+
+  const outcome = await runSyncJob(
+    jobKey,
+    ({ runId }) =>
+      performSourceSync(source, syncLogId, {
+        ...options,
+        jobRunId: runId,
+      }),
+    {
+      prismaClient: prisma,
+      hasErrors: (result) => result.failed,
+    },
+  );
+
+  if (!outcome.skipped) return outcome.result;
+
+  const message =
+    'Another sync for this source is already active; this request was skipped.';
+  const completedAt = new Date();
+
+  await prisma.$transaction([
+    prisma.syncLog.update({
+      where: { id: syncLogId },
+      data: {
+        status: 'failed',
+        completedAt,
+        errors: [{ message }],
+      },
+    }),
+    prisma.dataSource.update({
+      where: { id: source.id },
+      data: { lastError: message },
+    }),
+  ]);
+
+  return {
+    failed: true,
+    skipped: true,
+  };
 }

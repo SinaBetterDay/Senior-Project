@@ -21,6 +21,53 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+model AdminMember {
+  userId    String   @id @map("user_id") @db.Uuid
+  email     String   @unique
+  role      String
+  active    Boolean  @default(true)
+  grantedBy String?  @map("granted_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("admin_members")
+}
+
+model AdminAccessState {
+  id            Int      @id
+  initializedAt DateTime @default(now()) @map("initialized_at")
+
+  @@map("admin_access_state")
+}
+
+model AdminInvitation {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email      String
+  role       String
+  tokenHash  String   @unique @map("token_hash")
+  status     String
+  invitedBy  String   @map("invited_by") @db.Uuid
+  expiresAt  DateTime @map("expires_at")
+  lastError  String?  @map("last_error")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([email])
+  @@map("admin_invitations")
+}
+
+model AdminAccessAudit {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorId   String   @map("actor_id") @db.Uuid
+  action    String
+  target    String
+  details   Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([actorId, createdAt])
+  @@map("admin_access_audit")
+}
+
 // ---------------------------------------------------------------------------
 // Core v1 tables (now mapped to snake_case)
 // ---------------------------------------------------------------------------
@@ -35,11 +82,13 @@ model Jurisdiction {
   politicians Politician[]
   meetings    Meeting[]
   dataSources DataSource[]
+  detectionRuns DetectionRun[]
 
   @@map("jurisdictions")
 }
 
 model Politician {
+  isDemo         Boolean       @default(false) @map("is_demo")
   id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   slug           String        @unique
   fullName       String        @map("full_name")
@@ -64,8 +113,28 @@ model Politician {
   scheduleBRealEstate  ScheduleBRealEstate[]
   scheduleCdeIncome    ScheduleCdeIncome[]
   scheduleA2Positions  ScheduleA2BusinessPosition[]
+  detectionRuns       DetectionRun[]
+  detectionRunItems   DetectionRunItem[]
 
+  @@index([jurisdictionId], map: "politicians_jurisdiction_id_idx")
   @@map("politicians")
+}
+
+/// Durable audit trail for administrator approval and duplicate reconciliation.
+/// `sourcePoliticianId` is intentionally not a foreign key because a successful
+/// merge deletes that source profile; its unique value makes merge retries
+/// idempotent.
+model PoliticianReviewEvent {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  politicianId        String   @map("politician_id") @db.Uuid
+  sourcePoliticianId  String?  @unique @map("source_politician_id") @db.Uuid
+  action              String
+  adminUserId         String   @map("admin_user_id")
+  details             Json?
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([politicianId, createdAt], map: "politician_review_events_politician_created_idx")
+  @@map("politician_review_events")
 }
 
 model Meeting {
@@ -80,6 +149,8 @@ model Meeting {
 
   agendaItems AgendaItem[]
 
+  @@index([jurisdictionId], map: "meetings_jurisdiction_id_idx")
+  @@index([meetingDate], map: "meetings_meeting_date_idx")
   @@map("meetings")
 }
 
@@ -87,6 +158,7 @@ model Meeting {
 /// Raw ingestion inserts rows without a Meeting, so `meetingId` and `title` are
 /// nullable and the denormalised Legistar/PDF columns live directly on the row.
 model AgendaItem {
+  isDemo      Boolean   @default(false) @map("is_demo")
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   meetingId   String?   @map("meeting_id") @db.Uuid
   meeting     Meeting?  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
@@ -97,6 +169,8 @@ model AgendaItem {
   sourceType  String    @default("legistar") @map("source_type")
   /// Raw agenda text for a single item (PDF / Apify sources).
   itemText    String?   @map("item_text")
+  /// Original agenda document URL for traceability and admin review.
+  sourceUrl   String?   @map("source_url")
   /// Free-form city identifier used by the PDF/Apify pipelines before a
   /// Jurisdiction row exists.
   cityId      String?   @map("city_id")
@@ -117,9 +191,13 @@ model AgendaItem {
   votes         VoteRecord[]
   conflictFlags ConflictFlag[]
   conflicts     Conflict[]
+  detectionRunItems DetectionRunItem[]
 
-  @@index([meetingDate])
-  @@index([cityName, meetingDate])
+  @@index([meetingId], map: "agenda_items_meeting_id_idx")
+  @@index([meetingDate], map: "agenda_items_meeting_date_idx")
+  @@index([cityName, meetingDate], map: "agenda_items_city_name_meeting_date_idx")
+  @@index([cityId, meetingDate], map: "agenda_items_city_id_meeting_date_idx")
+  @@index([sourceType], map: "agenda_items_source_type_idx")
   @@unique([cityId, meetingDate, itemNumber])
   @@map("agenda_items")
 }
@@ -135,6 +213,8 @@ model VoteRecord {
   createdAt    DateTime   @default(now()) @map("created_at")
 
   @@unique([agendaItemId, politicianId])
+  @@index([agendaItemId], map: "vote_records_agenda_item_id_idx")
+  @@index([politicianId], map: "vote_records_politician_id_idx")
   @@map("vote_records")
 }
 
@@ -152,15 +232,37 @@ model Form700Filing {
   /// Legacy v1 column kept for backwards compatibility; prefer archivedPath.
   storagePath      String?    @map("storage_path")
   filedAt          DateTime?  @map("filed_at")
+  importMetadata   Json?      @map("import_metadata")
   createdAt        DateTime   @default(now()) @map("created_at")
 
   scheduleAInvestments ScheduleAInvestment[]
   scheduleBRealEstate  ScheduleBRealEstate[]
   scheduleCdeIncome    ScheduleCdeIncome[]
   scheduleA2Positions  ScheduleA2BusinessPosition[]
+  detectionRuns       DetectionRun[]
 
   @@unique([politicianId, filingYear])
   @@map("form700_filings")
+}
+
+/// Durable audit record for a confirmed bulk Form 700 import attempt. Results
+/// remain available even when individual filer rows fail or are skipped.
+model Form700ImportRun {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  originalFilename String   @map("original_filename")
+  sourceDigest     String   @map("source_digest")
+  adminUserId      String?  @map("admin_user_id")
+  status           String
+  importedCount    Int      @default(0) @map("imported_count")
+  skippedCount     Int      @default(0) @map("skipped_count")
+  failedCount      Int      @default(0) @map("failed_count")
+  warnings         Json?
+  results          Json?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt(sort: Desc)], map: "form700_import_runs_created_at_idx")
+  @@index([sourceDigest], map: "form700_import_runs_source_digest_idx")
+  @@map("form700_import_runs")
 }
 
 model ConflictFlag {
@@ -175,6 +277,9 @@ model ConflictFlag {
   createdAt    DateTime    @default(now()) @map("created_at")
   updatedAt    DateTime    @default(now()) @map("updated_at")
 
+  @@index([politicianId], map: "conflict_flags_politician_id_idx")
+  @@index([agendaItemId], map: "conflict_flags_agenda_item_id_idx")
+  @@index([status], map: "conflict_flags_status_idx")
   @@map("conflict_flags")
 }
 
@@ -189,6 +294,15 @@ model Conflict {
   ruleReference String       @map("rule_reference")
   entityName    String?      @map("entity_name")
   sourceKey     String       @map("source_key")
+  /// Null denotes unknown ownership (legacy or manually created); never reconcile those rows.
+  detectionOwner    String?   @map("detection_owner")
+  eligibilityStatus String?   @map("eligibility_status")
+  filingId          String?   @map("filing_id") @db.Uuid
+  disclosureId      String?   @map("disclosure_id") @db.Uuid
+  filingYear        Int?      @map("filing_year")
+  jurisdictionId    String?   @map("jurisdiction_id") @db.Uuid
+  meetingDate       DateTime? @map("meeting_date")
+  supportingSource  String?   @map("supporting_source")
   detectedAt    DateTime     @default(now()) @map("detected_at") @db.Timestamptz(3)
   reviewStatus  String       @default("pending") @map("review_status")
   reviewNote    String?      @map("review_note")
@@ -198,7 +312,15 @@ model Conflict {
   @@unique([politicianId, agendaItemId, conflictType, sourceKey], map: "conflicts_identity_key")
   @@index([politicianId], map: "conflicts_politician_id_idx")
   @@index([agendaItemId], map: "conflicts_agenda_item_id_idx")
+  @@index([detectionOwner, agendaItemId], map: "conflicts_detection_owner_agenda_item_id_idx")
   @@index([detectedAt], map: "conflicts_detected_at_idx")
+  @@index([politicianId, detectedAt], map: "conflicts_politician_detected_at_idx")
+  @@index([agendaItemId, detectedAt], map: "conflicts_agenda_item_detected_at_idx")
+  @@index([politicianId, agendaItemId], map: "conflicts_politician_agenda_item_idx")
+  @@index([conflictType], map: "conflicts_conflict_type_idx")
+  @@index([detectedAt(sort: Desc), id], map: "conflicts_detected_id_idx")
+  @@index([reviewStatus, detectedAt(sort: Desc), id], map: "conflicts_review_detected_id_idx")
+  @@index([conflictType, detectedAt(sort: Desc), id], map: "conflicts_type_detected_id_idx")
   @@map("conflicts")
 }
 
@@ -214,6 +336,63 @@ model ConflictReview {
 
   @@index([conflictId, reviewedAt(sort: Desc)], map: "conflict_reviews_conflict_id_reviewed_at_idx")
   @@map("conflict_reviews")
+}
+
+model DetectionRun {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  filingId        String?      @map("filing_id") @db.Uuid
+  filing          Form700Filing? @relation(fields: [filingId], references: [id], onDelete: Cascade)
+  politicianId    String?      @map("politician_id") @db.Uuid
+  politician      Politician?  @relation(fields: [politicianId], references: [id], onDelete: SetNull)
+  jurisdictionId  String?      @map("jurisdiction_id") @db.Uuid
+  jurisdiction    Jurisdiction? @relation(fields: [jurisdictionId], references: [id], onDelete: SetNull)
+  filingYear      Int           @map("filing_year")
+  trigger         String
+  triggeredBy     String?       @map("triggered_by")
+  status          String        @default("queued")
+  totalItems      Int           @default(0) @map("total_items")
+  processedItems  Int           @default(0) @map("processed_items")
+  candidateCount  Int           @default(0) @map("candidate_count")
+  insertedCount   Int           @default(0) @map("inserted_count")
+  duplicateCount  Int           @default(0) @map("duplicate_count")
+  failureCount    Int           @default(0) @map("failure_count")
+  error           String?
+  startedAt       DateTime?     @map("started_at") @db.Timestamptz(3)
+  completedAt     DateTime?     @map("completed_at") @db.Timestamptz(3)
+  lockAt          DateTime?     @map("lock_at") @db.Timestamptz(3)
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  items           DetectionRunItem[]
+
+  @@index([status, createdAt], map: "detection_runs_status_created_at_idx")
+  @@index([filingId], map: "detection_runs_filing_id_idx")
+  @@index([jurisdictionId, filingYear], map: "detection_runs_jurisdiction_year_idx")
+  @@map("detection_runs")
+}
+
+model DetectionRunItem {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  detectionRunId  String       @map("detection_run_id") @db.Uuid
+  detectionRun    DetectionRun @relation(fields: [detectionRunId], references: [id], onDelete: Cascade)
+  agendaItemId    String       @map("agenda_item_id") @db.Uuid
+  agendaItem      AgendaItem   @relation(fields: [agendaItemId], references: [id], onDelete: Cascade)
+  politicianId    String       @map("politician_id") @db.Uuid
+  politician      Politician   @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+  status          String       @default("pending")
+  attempts        Int          @default(0)
+  candidateCount  Int          @default(0) @map("candidate_count")
+  insertedCount   Int          @default(0) @map("inserted_count")
+  duplicateCount  Int          @default(0) @map("duplicate_count")
+  error           String?
+  startedAt       DateTime?    @map("started_at") @db.Timestamptz(3)
+  completedAt     DateTime?    @map("completed_at") @db.Timestamptz(3)
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([detectionRunId, agendaItemId, politicianId], map: "detection_run_items_identity_key")
+  @@index([detectionRunId, status], map: "detection_run_items_run_status_idx")
+  @@index([agendaItemId], map: "detection_run_items_agenda_item_id_idx")
+  @@map("detection_run_items")
 }
 
 model ScheduleAInvestment {
@@ -296,6 +475,11 @@ model DataSource {
   enabled         Boolean       @default(true)
   lastSyncedAt    DateTime?     @map("last_synced_at")
   lastError       String?       @map("last_error")
+  lastDocumentsFound Int        @default(0) @map("last_documents_found")
+  lastPdfsFetched    Int        @default(0) @map("last_pdfs_fetched")
+  lastItemsInserted  Int        @default(0) @map("last_items_inserted")
+  lastItemsSkipped   Int        @default(0) @map("last_items_skipped")
+  lastSyncErrors     Json?      @map("last_sync_errors")
   jurisdictionId  String?       @map("jurisdiction_id") @db.Uuid
   jurisdiction    Jurisdiction? @relation(fields: [jurisdictionId], references: [id], onDelete: SetNull)
   createdAt       DateTime      @default(now()) @map("created_at")
@@ -308,19 +492,43 @@ model DataSource {
 
 model SyncLog {
   id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  jobRunId        String?     @map("job_run_id") @db.Uuid
+  jobRun          SyncJobRun? @relation(fields: [jobRunId], references: [id], onDelete: SetNull)
   dataSourceId    String?     @map("data_source_id") @db.Uuid
   dataSource      DataSource? @relation(fields: [dataSourceId], references: [id], onDelete: SetNull)
   sourceType      String?     @map("source_type")
   status          String      @default("running")
   startedAt       DateTime    @default(now()) @map("started_at")
+  heartbeatAt     DateTime    @default(now()) @map("heartbeat_at") @db.Timestamptz(3)
   completedAt     DateTime?   @map("completed_at")
   itemsFound      Int         @default(0) @map("items_found")
+  documentsFound  Int         @default(0) @map("documents_found")
+  pdfsFetched     Int         @default(0) @map("pdfs_fetched")
+  documentsSkipped Int        @default(0) @map("documents_skipped")
   itemsInserted   Int         @default(0) @map("items_inserted")
   itemsSkipped    Int         @default(0) @map("items_skipped")
+  conflictCandidates Int      @default(0) @map("conflict_candidates")
   conflictsDetected Int       @default(0) @map("conflicts_detected")
+  conflictsSkipped Int        @default(0) @map("conflicts_skipped")
+  detectionErrors Json?       @map("detection_errors")
   errors          Json?
 
   @@index([dataSourceId, startedAt], map: "sync_logs_data_source_id_started_at_idx")
   @@index([startedAt], map: "sync_logs_started_at_idx")
+  @@index([jobRunId], map: "sync_logs_job_run_id_idx")
   @@map("sync_logs")
+}
+
+model SyncJobRun {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  jobKey      String    @map("job_key")
+  status      String    @default("running")
+  startedAt   DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)
+  heartbeatAt DateTime  @default(now()) @map("heartbeat_at") @db.Timestamptz(3)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+  error       String?
+  syncLogs    SyncLog[]
+
+  @@index([jobKey, status, heartbeatAt], map: "sync_job_runs_key_status_heartbeat_idx")
+  @@map("sync_job_runs")
 }

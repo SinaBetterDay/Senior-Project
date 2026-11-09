@@ -6,8 +6,8 @@ Cross-cutting “rooms” for **ingestion**, **matching**, **jobs**, and **notif
 |-----------|---------|
 | `form700-ingestion/` | XLSX uploads, schedules A–E & A-2 |
 | `agenda-ingestion/` | Legistar JSON, Apify, PDF parsing |
-| `entity-resolution/` | `fuse.js` + Gemini band 0.7–0.85 |
-| `cron-jobs/` | Nightly sync with `node-cron` |
-| `admin-notifications/` | Resend weekly digests |
+| `entity-resolution/` | Two matching flows and their distinct thresholds |
+| `cron-jobs/` | Implemented `node-cron` paths and disabled workflow status |
+| `admin-notifications/` | Planned Resend weekly digests (not implemented) |
 
 Start from repo root: **`CLAUDE.md`** and **`DIRECTORY.md`**.

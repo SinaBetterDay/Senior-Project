@@ -10,6 +10,23 @@
 - **Storage:** bucket(s) for raw **Form 700** files; align naming with backend upload routes.
 - **Migrations:** the **application schema** is owned by Prisma (`server/prisma/migrations/`, applied with `npx prisma migrate deploy`). `supabase/migrations/` holds only Supabase-specific SQL that Prisma cannot express (Storage buckets, RLS policies, auth config). Document breaking changes in commit messages.
 
+## Database API access
+
+The browser uses Supabase Auth for admin sign-in, but all FAIR application data is
+read or changed through the Express API. Public website endpoints provide the
+politician and conflict data intended for non-admin users; admin endpoints verify
+the user's membership before making changes.
+
+The Supabase migration `20261102190000_enable_application_table_rls.sql` enables
+RLS on every Prisma-mapped application table and revokes direct table privileges
+from `PUBLIC`, `anon`, and `authenticated`. It intentionally creates no table
+policies, so browser clients cannot query or mutate application tables directly.
+`sync_job_runs` is also protected by its Prisma migration, because the application
+schema migration may run after Supabase-specific migrations. Its Supabase RLS
+migration checks that the table exists before applying the same restrictions.
+This does not restrict requests handled by the privileged server-side database
+connection or Supabase service-role client. Keep those credentials server-only.
+
 ## Naming decision — camelCase Prisma models, snake_case tables (Sprint 5, schema v2)
 
 The team decision, applied in `server/prisma/schema.prisma`:
@@ -35,6 +52,7 @@ The team decision, applied in `server/prisma/schema.prisma`:
 | `ScheduleA2BusinessPosition` | `schedule_a2_business_positions` |
 | `DataSource` | `data_sources` |
 | `SyncLog` | `sync_logs` |
+| `SyncJobRun` | `sync_job_runs` |
 
 ## Running migrations
 

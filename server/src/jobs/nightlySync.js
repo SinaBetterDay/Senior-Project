@@ -1,7 +1,10 @@
 import postgres from 'postgres';
+import { legistarItemKey } from '../ingestion/legistarIdentity.js';
 import { fetchLegistarAgendaItemsForDataSource } from '../ingestion/legistar.js';
 import { detectConflictsForAgendaItems } from '../detection/detectConflicts.js';
+import { detectAgendaConflictsSafely } from '../detection/detectAgendaConflictsSafely.js';
 import { prisma } from '../lib/prisma.js';
+import { runSyncJob } from './syncJobRun.js';
 
 const DEFAULT_LOOKBACK_DAYS = 30;
 
@@ -23,13 +26,30 @@ function parseDate(value) {
 }
 
 function toItemInsertRow({ source, meeting, meetingId, item }) {
+  const title = item.EventItemTitle ?? item.EventItemMatterName ?? item.MatterName ?? item.Title ?? 'Untitled Agenda Item';
+  const description = item.EventItemAgendaNote ?? item.AgendaNote ?? null;
+  const itemText = [
+    title,
+    description,
+    item.EventItemMinutesNote ?? item.MinutesNote,
+    item.EventItemActionText,
+  ].filter((value) => value != null && String(value).trim() !== '').join('\n');
   return {
-    legistar_item_id: String(item.EventItemId ?? item.event_item_id ?? ''),
+    legistar_item_id: legistarItemKey(
+      source.legistar_base_url ?? source.legistarBaseUrl ?? source.baseUrl,
+      item.EventItemId ?? item.event_item_id,
+    ),
+    city_id: source.id ?? null,
     source_type: 'legistar',
     legistar_event_id: String(meetingId),
-    legistar_matter_id: item.MatterId != null ? String(item.MatterId) : null,
+    legistar_matter_id: item.EventItemMatterId != null
+      ? String(item.EventItemMatterId)
+      : item.MatterId != null ? String(item.MatterId) : null,
     city_name: getCityName(source),
-    title: item.EventItemTitle ?? item.MatterName ?? item.Title ?? 'Untitled Agenda Item',
+    title,
+    description,
+    item_text: itemText || null,
+    source_url: meeting.EventInSiteURL ?? meeting.EventAgendaFile ?? null,
     agenda_number: item.EventItemAgendaNumber ?? item.EventItemAgendaSequence ?? null,
     body_name: meeting.EventBodyName ?? meeting.EventBodyId ?? null,
     meeting_date: parseDate(meeting.EventDate ?? meeting.event_date),
@@ -139,7 +159,11 @@ async function insertAgendaItemRows(sql, rows, agendaItemColumns) {
     'legistar_event_id',
     'legistar_matter_id',
     'city_name',
+    'city_id',
     'title',
+    'description',
+    'item_text',
+    'source_url',
     'agenda_number',
     'body_name',
     'meeting_date',
@@ -165,21 +189,25 @@ async function insertAgendaItemRows(sql, rows, agendaItemColumns) {
 }
 
 async function runLegistarSyncForCityWithSql(sql, dataSource, agendaItemColumns, options = {}) {
-  const lookbackDays = options.lookbackDays ?? DEFAULT_LOOKBACK_DAYS;
   const cityName = getCityName(dataSource);
 
-  const { meetings, allItems } = await fetchLegistarAgendaItemsForDataSource(dataSource, lookbackDays);
+  const { meetings, allItems } = await fetchLegistarAgendaItemsForDataSource(dataSource, {
+    ...options,
+    lookbackDays: options.lookbackDays ?? DEFAULT_LOOKBACK_DAYS,
+  });
   const rows = buildInsertRows(dataSource, allItems);
   const insertedAgendaItemIds = await insertAgendaItemRows(sql, rows, agendaItemColumns);
   const inserted = insertedAgendaItemIds.length;
   const skipped = rows.length - inserted;
   const detect = options.detectConflictsForAgendaItems ?? detectConflictsForAgendaItems;
-  const detection = inserted > 0
-    ? await detect(insertedAgendaItemIds, options.detectionDependencies)
-    : { inserted: 0, skipped: 0, totalCandidates: 0 };
+  const detection = await detectAgendaConflictsSafely(
+    insertedAgendaItemIds,
+    detect,
+    options.detectionDependencies,
+  );
 
   console.log(
-    `[cron][legistar] city="${cityName}" items_found=${rows.length} inserted=${inserted} skipped=${skipped} conflicts=${detection.inserted}`,
+    `[cron][legistar] city="${cityName}" items_found=${rows.length} inserted=${inserted} skipped=${skipped} conflict_candidates=${detection.conflictCandidates} conflicts_inserted=${detection.conflictsDetected} conflicts_skipped=${detection.conflictsSkipped} detection_failures=${detection.detectionErrors.length}`,
   );
 
   return {
@@ -192,8 +220,7 @@ async function runLegistarSyncForCityWithSql(sql, dataSource, agendaItemColumns,
     skipped,
     itemsSkipped: skipped,
     insertedAgendaItemIds,
-    conflictsDetected: detection.inserted,
-    conflictsSkipped: detection.skipped,
+    ...detection,
   };
 }
 
@@ -227,7 +254,7 @@ export async function runLegistarSyncForCity(sqlOrConfig, dataSource, agendaItem
   }
 }
 
-export async function runNightlyLegistarSync(options = {}) {
+async function performNightlyLegistarSync(options = {}) {
   const databaseUrl = getDatabaseUrl();
   if (!databaseUrl) {
     throw new Error('Missing DATABASE_URL (or DIRECT_URL) for nightly Legistar sync');
@@ -244,6 +271,15 @@ export async function runNightlyLegistarSync(options = {}) {
       loadLegistarDataSources(sql),
       loadAgendaItemColumns(sql),
     ]);
+    const requestedCity = typeof options.city === 'string'
+      ? options.city.trim().toLowerCase()
+      : null;
+
+    const sourcesToProcess = requestedCity
+      ? dataSources.filter(
+        (source) => getCityName(source).trim().toLowerCase() === requestedCity,
+      )
+      : dataSources;
 
     const totals = {
       citiesProcessed: 0,
@@ -251,18 +287,22 @@ export async function runNightlyLegistarSync(options = {}) {
       inserted: 0,
       skipped: 0,
       conflictsDetected: 0,
+      conflictCandidates: 0,
+      conflictsSkipped: 0,
+      detectionFailures: 0,
       failures: 0,
     };
 
     const prismaClient = options.prisma ?? prisma;
 
-    for (const source of dataSources) {
+    for (const source of sourcesToProcess) {
       const startedAt = new Date();
       let syncLog = null;
       try {
         if (prismaClient?.syncLog?.create) {
           syncLog = await prismaClient.syncLog.create({
             data: {
+              jobRunId: options.jobRunId ?? null,
               dataSourceId: source.id,
               sourceType: 'legistar',
               status: 'running',
@@ -278,6 +318,9 @@ export async function runNightlyLegistarSync(options = {}) {
         totals.inserted += result.inserted;
         totals.skipped += result.skipped;
         totals.conflictsDetected += result.conflictsDetected;
+        totals.conflictCandidates += result.conflictCandidates;
+        totals.conflictsSkipped += result.conflictsSkipped;
+        totals.detectionFailures += result.detectionErrors.length;
 
         if (prismaClient?.$transaction) {
           await prismaClient.$transaction([
@@ -291,7 +334,10 @@ export async function runNightlyLegistarSync(options = {}) {
                       itemsFound: result.itemsFound,
                       itemsInserted: result.itemsInserted,
                       itemsSkipped: result.itemsSkipped,
+                      conflictCandidates: result.conflictCandidates,
                       conflictsDetected: result.conflictsDetected,
+                      conflictsSkipped: result.conflictsSkipped,
+                      detectionErrors: result.detectionErrors,
                       errors: null,
                     },
                   }),
@@ -336,14 +382,41 @@ export async function runNightlyLegistarSync(options = {}) {
           ]);
         }
       }
+
     }
 
     console.log(
-      `[cron][legistar] complete cities=${totals.citiesProcessed} failures=${totals.failures} items_found=${totals.itemsFound} inserted=${totals.inserted} skipped=${totals.skipped} conflicts=${totals.conflictsDetected}`,
+      `[cron][legistar] complete cities=${totals.citiesProcessed} failures=${totals.failures} items_found=${totals.itemsFound} inserted=${totals.inserted} skipped=${totals.skipped} conflict_candidates=${totals.conflictCandidates} conflicts_inserted=${totals.conflictsDetected} conflicts_skipped=${totals.conflictsSkipped} detection_failures=${totals.detectionFailures}`,
     );
 
     return totals;
   } finally {
     await sql.end();
   }
+}
+
+export async function runNightlyLegistarSync(options = {}) {
+  const prismaClient = options.prisma ?? prisma;
+  const outcome = await runSyncJob(
+    'legistar',
+    ({ runId }) => performNightlyLegistarSync({ ...options, jobRunId: runId }),
+    {
+      prismaClient,
+      hasErrors: (result) => result.failures > 0,
+    },
+  );
+  if (!outcome.skipped) return outcome.result;
+
+  return {
+    citiesProcessed: 0,
+    itemsFound: 0,
+    inserted: 0,
+    skipped: 0,
+    conflictsDetected: 0,
+    conflictCandidates: 0,
+    conflictsSkipped: 0,
+    detectionFailures: 0,
+    failures: 0,
+    skippedRun: true,
+  };
 }

@@ -2,21 +2,29 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import fs from "fs";
 import path from "path";
 import request from "supertest";
+import * as XLSX from 'xlsx';
+import { makeForm700Pdf, pdfCover, pdfItem } from '../fixtures/form700Pdf.js';
 
 // --- mocks (hoisted by vitest) ---------------------------------------------
 
 vi.mock("../../src/lib/auth.js", () => {
   const requireAdmin = vi.fn((_req, _res, next) => next());
-  return { requireAdmin, default: requireAdmin };
+  return {
+    requireAdmin,
+    default: requireAdmin,
+    requireAuthenticated: vi.fn((_req, _res, next) => next()),
+    requireOwner: vi.fn((_req, _res, next) => next()),
+  };
 });
 
 vi.mock("../../src/lib/prisma.js", () => {
   const tx = {
-    form700Filing: { create: vi.fn() },
-    scheduleAInvestment: { createMany: vi.fn() },
-    scheduleBRealEstate: { createMany: vi.fn() },
-    scheduleCdeIncome: { createMany: vi.fn() },
-    scheduleA2BusinessPosition: { createMany: vi.fn() },
+    form700Filing: { create: vi.fn(), update: vi.fn() },
+    detectionRun: { create: vi.fn() },
+    scheduleAInvestment: { createMany: vi.fn(), deleteMany: vi.fn() },
+    scheduleBRealEstate: { createMany: vi.fn(), deleteMany: vi.fn() },
+    scheduleCdeIncome: { createMany: vi.fn(), deleteMany: vi.fn() },
+    scheduleA2BusinessPosition: { createMany: vi.fn(), deleteMany: vi.fn() },
   };
   const prisma = {
     __tx: tx,
@@ -27,6 +35,8 @@ vi.mock("../../src/lib/prisma.js", () => {
       delete: vi.fn(),
     },
     politician: { findUnique: vi.fn() },
+    jurisdiction: { findMany: vi.fn() },
+    form700ImportRun: { create: vi.fn(), update: vi.fn() },
   };
   return { prisma, default: prisma };
 });
@@ -42,21 +52,46 @@ vi.mock("../../src/utils/findOrCreatePolitician.js", () => ({
   findOrCreatePolitician: vi.fn(),
 }));
 
+vi.mock("../../src/detection/detectionRuns.js", () => ({
+  queueDetectionRun: vi.fn(),
+}));
+vi.mock("../../src/detection/redetectDisclosure.js", () => ({
+  redetectDisclosureAgendaItems: vi.fn(),
+}));
+
 // Belt and braces: app.js does not schedule cron, but never let a test touch it.
 vi.mock("../../src/jobs/scheduleCronJobs.js", () => ({ scheduleCronJobs: vi.fn() }));
 
 import { app } from "../../src/app.js";
 import { requireAdmin } from "../../src/lib/auth.js";
 import { prisma } from "../../src/lib/prisma.js";
-import { archiveWorkbook, XLSX_MIME } from "../../src/lib/storage.js";
+import { archiveWorkbook, deleteWorkbook, XLSX_MIME } from "../../src/lib/storage.js";
 import { findOrCreatePolitician } from "../../src/utils/findOrCreatePolitician.js";
+import { queueDetectionRun } from "../../src/detection/detectionRuns.js";
+import { redetectDisclosureAgendaItems } from "../../src/detection/redetectDisclosure.js";
 
 const ENDPOINT = "/api/admin/upload/form700";
-const validBuffer = fs.readFileSync(path.resolve("tests/fixtures/form700-valid.xlsx"));
+// The old fixture is a county-wide export. Give its schedule rows one synthetic
+// owner/version for legacy single-filing transaction tests; bulk tests use the
+// untouched workbook and verify that cross-filer assignments are rejected.
+const singleWorkbook = XLSX.read(fs.readFileSync(path.resolve('tests/fixtures/form700-valid.xlsx')));
+for (const name of singleWorkbook.SheetNames) {
+  const sheet = singleWorkbook.Sheets[name];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+  const header = rows.findIndex(row => row.includes('Last Name'));
+  if (header < 0) continue;
+  for (const row of rows.slice(header + 1)) {
+    if (!row[0] || !row[1]) continue;
+    row[0] = 'Gore'; row[1] = 'James'; row[2] = 'M'; row[7] = 'Annual'; row[10] = 43922;
+  }
+  singleWorkbook.Sheets[name] = XLSX.utils.aoa_to_sheet(rows);
+}
+const validBuffer = XLSX.write(singleWorkbook, { type: 'buffer', bookType: 'xlsx' });
 const malformedBuffer = fs.readFileSync(path.resolve("tests/fixtures/form700-malformed.xlsx"));
 
 const POLITICIAN_ID = "11111111-2222-4333-8444-555555555555";
 const FILING_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+const DETECTION_RUN_ID = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff";
 const ARCHIVED_PATH = `filings/${POLITICIAN_ID}/${FILING_ID}/123-form700-valid.xlsx`;
 
 function postFile(buffer, { filename = "form700-valid.xlsx", contentType = XLSX_MIME, fields = {} } = {}) {
@@ -77,8 +112,13 @@ beforeEach(() => {
   prisma.form700Filing.update.mockResolvedValue({ id: FILING_ID });
   prisma.form700Filing.delete.mockResolvedValue({ id: FILING_ID });
   prisma.politician.findUnique.mockResolvedValue({ fullName: "James M Gore", slug: "james-m-gore" });
+  prisma.jurisdiction.findMany.mockResolvedValue([]);
+  prisma.form700ImportRun.create.mockResolvedValue({ id: 'run-id' });
+  prisma.form700ImportRun.update.mockResolvedValue({ id: 'run-id' });
   prisma.$transaction.mockImplementation(async (fn) => fn(prisma.__tx));
   prisma.__tx.form700Filing.create.mockResolvedValue({ id: FILING_ID });
+  prisma.__tx.form700Filing.update.mockResolvedValue({ id: FILING_ID });
+  prisma.__tx.detectionRun.create.mockResolvedValue({ id: DETECTION_RUN_ID });
   for (const model of [
     "scheduleAInvestment",
     "scheduleBRealEstate",
@@ -88,19 +128,121 @@ beforeEach(() => {
     prisma.__tx[model].createMany.mockImplementation(async ({ data }) => ({ count: data.length }));
   }
   archiveWorkbook.mockResolvedValue(ARCHIVED_PATH);
+  deleteWorkbook.mockResolvedValue(undefined);
+  redetectDisclosureAgendaItems.mockResolvedValue({
+    agendaItemsProcessed: 2,
+    conflictCandidates: 1,
+    conflictsDetected: 1,
+    conflictsSkipped: 0,
+    detectionErrors: [],
+    skippedReason: null,
+  });
 });
 
 describe("POST /api/admin/upload/form700", () => {
+  it('imports a text PDF with schedule records and archives its original bytes', async () => {
+    const buffer = makeForm700Pdf([pdfCover, [pdfItem('SCHEDULE C', 40, 720), pdfItem('NAME OF SOURCE', 40, 650), pdfItem('Example Employer', 40, 635)]]);
+    const res = await postFile(buffer, { filename: 'filing.pdf', contentType: 'application/pdf' });
+    expect(res.status).toBe(200);
+    expect(res.body.schedules_parsed).toEqual({ A: 0, A2: 0, B: 0, CDE: 1 });
+    expect(res.body.warnings[0]).toContain('named entities');
+    expect(findOrCreatePolitician).toHaveBeenCalledWith('Alex A Example', null, { officeTitle: 'Supervisor' });
+    expect(prisma.__tx.form700Filing.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ filingYear: 2025, originalFilename: 'filing.pdf' }) }));
+    expect(prisma.__tx.scheduleCdeIncome.createMany).toHaveBeenCalledWith({ data: [{ filingId: FILING_ID, politicianId: POLITICIAN_ID, scheduleType: 'C', sourceName: 'Example Employer', amount: null }] });
+    expect(archiveWorkbook).toHaveBeenCalledWith(buffer, 'filing.pdf', { filingId: FILING_ID, politicianId: POLITICIAN_ID });
+  });
+
+  it('warns that a cover-only amendment PDF has no disclosure rows', async () => {
+    const res = await postFile(makeForm700Pdf([[...pdfCover, pdfItem('AMENDMENT', 60, 718)]]), { filename: 'amendment.pdf', contentType: 'application/pdf' });
+    expect(res.status).toBe(200);
+    expect(res.body.schedules_parsed).toEqual({ A: 0, A2: 0, B: 0, CDE: 0 });
+    expect(res.body.warnings).toHaveLength(2);
+    expect(prisma.__tx.scheduleCdeIncome.createMany).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [Buffer.from('fake'), 'application/pdf'],
+    [makeForm700Pdf([[]]), 'application/pdf'],
+    [makeForm700Pdf(), 'text/plain'],
+  ])('rejects invalid, scanned or MIME-mismatched PDFs without writes', async (buffer, contentType) => {
+    const res = await postFile(buffer, { filename: 'filing.pdf', contentType });
+    expect(res.status).toBe(400);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(archiveWorkbook).not.toHaveBeenCalled();
+  });
+
+  it('keeps duplicate-year protection for PDF uploads', async () => {
+    prisma.form700Filing.findUnique.mockResolvedValue({ id: 'existing' });
+    const res = await postFile(makeForm700Pdf(), { filename: 'filing.pdf', contentType: 'application/pdf' });
+    expect(res.status).toBe(409);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+  it('rejects a multi-filer workbook on the single-filing route', async () => {
+    const buffer = fs.readFileSync(path.resolve('../docs/County of Sonoma -- Form 700 (2019).xlsx'));
+    const res = await postFile(buffer);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('bulk Form 700');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('requires authentication for bulk previews', async () => {
+    requireAdmin.mockImplementation((_req, res) => res.status(401).json({ error: 'unauthorized' }));
+    const res = await request(app).post('/api/admin/upload/form700/bulk/preview');
+    expect(res.status).toBe(401);
+  });
+
+  it('previews a bulk export without writes and rejects unconfirmed imports', async () => {
+    const buffer = fs.readFileSync(path.resolve('../docs/County of Sonoma -- Form 700 (2019).xlsx'));
+    const preview = await request(app).post('/api/admin/upload/form700/bulk/preview')
+      .attach('file', buffer, { filename: 'county.xlsx', contentType: XLSX_MIME });
+    expect(preview.status).toBe(200);
+    expect(preview.body.filings).toHaveLength(13);
+    expect(preview.body.filings[0]).not.toHaveProperty('schedules');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    const unconfirmed = await request(app).post('/api/admin/upload/form700/bulk/import')
+      .field('digest', 'wrong').attach('file', buffer, { filename: 'county.xlsx', contentType: XLSX_MIME });
+    expect(unconfirmed.status).toBe(409);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('records a confirmed bulk import attempt for durable history', async () => {
+    const buffer = fs.readFileSync(path.resolve('../docs/County of Sonoma -- Form 700 (2019).xlsx'));
+    prisma.form700Filing.findUnique.mockResolvedValue({ id: 'existing' });
+    prisma.politician.findMany = vi.fn().mockResolvedValue([{ id: POLITICIAN_ID, fullName: 'James M Gore' }]);
+    prisma.jurisdiction.findMany.mockResolvedValue([{ id: 'jurisdiction' }]);
+    const preview = await request(app).post('/api/admin/upload/form700/bulk/preview').attach('file', buffer, { filename: 'county.xlsx', contentType: XLSX_MIME });
+    const response = await request(app).post('/api/admin/upload/form700/bulk/import').field('digest', preview.body.digest).attach('file', buffer, { filename: 'county.xlsx', contentType: XLSX_MIME });
+    expect(response.status).toBe(200);
+    expect(prisma.form700ImportRun.create).toHaveBeenCalledWith({ data: expect.objectContaining({ originalFilename: 'county.xlsx', sourceDigest: preview.body.digest }) });
+    expect(prisma.form700ImportRun.create.mock.calls[0][0].data.status).toBe('running');
+    expect(prisma.form700ImportRun.update).toHaveBeenCalledWith({ where: { id: 'run-id' }, data: expect.objectContaining({ skippedCount: 1, failedCount: 12, status: 'partial' }) });
+  });
+
+  it('rejects missing bulk files and unknown actions', async () => {
+    expect((await request(app).post('/api/admin/upload/form700/bulk/preview')).status).toBe(400);
+    expect((await request(app).post('/api/admin/upload/form700/bulk/unknown')).status).toBe(404);
+  });
   it("ingests a valid XLSX: 200 with filing id, politician id, schedule counts and archive path", async () => {
     const res = await postFile(validBuffer);
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
       filing_id: FILING_ID,
+      corrected: false,
+      detection_run_id: DETECTION_RUN_ID,
+      detection_run_status: "queued",
       politician_id: POLITICIAN_ID,
       politician: { name: "James M Gore", slug: "james-m-gore" },
       schedules_parsed: { A: 39, B: 15, CDE: 24, A2: 17 },
       archived_path: ARCHIVED_PATH,
+      detection: {
+        agenda_items_processed: 2,
+        conflict_candidates: 1,
+        conflicts_detected: 1,
+        conflicts_skipped: 0,
+        failures: [],
+        skipped_reason: null,
+      },
     });
 
     // Politician resolved from the cover-page/filer metadata, not a form field.
@@ -118,6 +260,16 @@ describe("POST /api/admin/upload/form700", () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     const tx = prisma.__tx;
     expect(tx.form700Filing.create).toHaveBeenCalledTimes(1);
+    expect(tx.detectionRun.create).toHaveBeenCalledWith({
+      data: {
+        filingId: FILING_ID,
+        politicianId: POLITICIAN_ID,
+        filingYear: 2019,
+        trigger: "form700_upload",
+        status: "queued",
+      },
+      select: { id: true },
+    });
     expect(tx.form700Filing.create.mock.calls[0][0].data).toMatchObject({
       politicianId: POLITICIAN_ID,
       filingYear: 2019,
@@ -167,7 +319,59 @@ describe("POST /api/admin/upload/form700", () => {
       where: { id: FILING_ID },
       data: { archivedPath: ARCHIVED_PATH, storagePath: ARCHIVED_PATH },
     });
+    expect(redetectDisclosureAgendaItems).toHaveBeenCalledWith({
+      politicianId: POLITICIAN_ID,
+      filingYear: 2019,
+      prisma,
+    });
     expect(prisma.form700Filing.delete).not.toHaveBeenCalled();
+    expect(queueDetectionRun).toHaveBeenCalledWith(DETECTION_RUN_ID);
+  });
+
+    it("ingests a workbook with missing optional schedules", async () => {
+    const XLSX = await import("xlsx");
+    const workbook = XLSX.read(validBuffer, { type: "buffer" });
+
+    const optionalSchedule = /schedule\s+(?:b|c|d|e|a-2)\b/i;
+
+    workbook.SheetNames = workbook.SheetNames.filter((sheetName) => {
+      if (optionalSchedule.test(sheetName)) {
+        delete workbook.Sheets[sheetName];
+        return false;
+      }
+      return true;
+    });
+
+    const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+    const res = await postFile(buffer, { filename: "form700-missing-optional.xlsx" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.filing_id).toBe(FILING_ID);
+    expect(res.body.politician_id).toBe(POLITICIAN_ID);
+    expect(res.body.schedules_parsed).toMatchObject({
+      A: 39,
+      B: 0,
+      CDE: 0,
+      A2: 0,
+    });
+    expect(res.body.archived_path).toBe(ARCHIVED_PATH);
+  });
+
+    it("logs when filing cleanup fails after an archive error", async () => {
+    prisma.form700Filing.update.mockRejectedValueOnce(new Error("database unavailable"));
+    prisma.form700Filing.delete.mockRejectedValueOnce(new Error("filing delete failed"));
+
+    const res = await postFile(validBuffer);
+
+    expect(res.status).toBe(500);
+    expect(console.error).toHaveBeenCalledWith(
+      "[upload] failed to delete filing after archive error:",
+      expect.objectContaining({
+        filingId: FILING_ID,
+        politicianId: POLITICIAN_ID,
+        error: "filing delete failed",
+      }),
+    );
   });
 
   it("uses an explicit politician_id form field instead of entity resolution", async () => {
@@ -186,13 +390,14 @@ describe("POST /api/admin/upload/form700", () => {
     expect(res.body.error).toMatch(/recognizable Form 700|valid XLSX/i);
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(archiveWorkbook).not.toHaveBeenCalled();
+    expect(queueDetectionRun).not.toHaveBeenCalled();
   });
 
   it("rejects files without an .xlsx extension before parsing", async () => {
     const res = await postFile(validBuffer, { filename: "form700.xml" });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/Only \.xlsx files are accepted/);
+    expect(res.body.error).toMatch(/Only \.xlsx or \.pdf files are accepted/);
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
@@ -201,6 +406,25 @@ describe("POST /api/admin/upload/form700", () => {
 
     expect(res.status).toBe(400);
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for a workbook with no recognizable Form 700 sheets", async () => {
+    const XLSX = await import("xlsx");
+    const workbook = XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet([["Instructions"], ["Not a Form 700 workbook"]]),
+      "Instructions",
+    );
+
+    const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+    const res = await postFile(buffer, { filename: "unsupported.xlsx" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/recognizable Form 700 sheets/i);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(archiveWorkbook).not.toHaveBeenCalled();
   });
 
   it("returns 400 when the MIME type is not XLSX", async () => {
@@ -217,7 +441,7 @@ describe("POST /api/admin/upload/form700", () => {
       .field("politician_id", POLITICIAN_ID);
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/Missing XLSX upload/);
+    expect(res.body.error).toMatch(/Missing XLSX or PDF upload/);
   });
 
   it("returns 401 for an unauthenticated request and never touches parsing or the DB", async () => {
@@ -247,6 +471,47 @@ describe("POST /api/admin/upload/form700", () => {
     expect(archiveWorkbook).not.toHaveBeenCalled();
   });
 
+  it("replaces an existing filing's schedules when explicitly uploading a correction", async () => {
+    prisma.form700Filing.findUnique.mockResolvedValue({ id: FILING_ID });
+    const res = await postFile(validBuffer, {
+      fields: { replace_existing: "true" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      filing_id: FILING_ID,
+      corrected: true,
+      detection_run_id: DETECTION_RUN_ID,
+    });
+    expect(prisma.__tx.form700Filing.create).not.toHaveBeenCalled();
+    expect(prisma.__tx.form700Filing.update).toHaveBeenCalledWith({
+      where: { id: FILING_ID },
+      data: {
+        filerName: "James M Gore",
+        originalFilename: "form700-valid.xlsx",
+        archivedPath: ARCHIVED_PATH,
+        storagePath: ARCHIVED_PATH,
+      },
+      select: { id: true },
+    });
+    for (const model of [
+      "scheduleAInvestment",
+      "scheduleBRealEstate",
+      "scheduleCdeIncome",
+      "scheduleA2BusinessPosition",
+    ]) {
+      expect(prisma.__tx[model].deleteMany).toHaveBeenCalledWith({
+        where: { filingId: FILING_ID },
+      });
+    }
+    const [archivedBuffer, archivedFilename, archiveIds] = archiveWorkbook.mock.calls[0];
+    expect(archivedBuffer.equals(validBuffer)).toBe(true);
+    expect(archivedFilename).toBe("form700-valid.xlsx");
+    expect(archiveIds).toEqual({ filingId: FILING_ID, politicianId: POLITICIAN_ID });
+    expect(deleteWorkbook).not.toHaveBeenCalled();
+    expect(queueDetectionRun).toHaveBeenCalledWith(DETECTION_RUN_ID);
+  });
+
   it("returns 409 when the transaction hits the unique constraint (Prisma P2002 race)", async () => {
     const p2002 = Object.assign(new Error("Unique constraint failed"), { code: "P2002" });
     prisma.__tx.form700Filing.create.mockRejectedValue(p2002);
@@ -274,9 +539,46 @@ describe("POST /api/admin/upload/form700", () => {
     const res = await postFile(validBuffer);
 
     expect(res.status).toBe(500);
-    expect(res.body.error).toMatch(/Failed to archive workbook/);
+    expect(res.body.error).toBe(
+      'The server could not complete this request. Please try again.'
+    );
+    expect(res.body).not.toHaveProperty('stack');
+    expect(JSON.stringify(res.body)).not.toContain('bucket unavailable');
     expect(prisma.form700Filing.delete).toHaveBeenCalledWith({ where: { id: FILING_ID } });
     expect(prisma.form700Filing.update).not.toHaveBeenCalled();
+    expect(queueDetectionRun).not.toHaveBeenCalled();
+  });
+
+  it("deletes the archived workbook and filing when saving the archive path fails", async () => {
+    prisma.form700Filing.update.mockRejectedValueOnce(new Error("database unavailable"));
+
+    const res = await postFile(validBuffer);
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe(
+      'The server could not complete this request. Please try again.'
+    );
+    expect(deleteWorkbook).toHaveBeenCalledWith(ARCHIVED_PATH);
+    expect(prisma.form700Filing.delete).toHaveBeenCalledWith({ where: { id: FILING_ID } });
+    expect(prisma.form700Filing.update).toHaveBeenCalled();
+  });
+
+  it("logs enough information when archived workbook cleanup fails", async () => {
+    prisma.form700Filing.update.mockRejectedValueOnce(new Error("database unavailable"));
+    deleteWorkbook.mockRejectedValueOnce(new Error("storage delete failed"));
+
+    const res = await postFile(validBuffer);
+
+    expect(res.status).toBe(500);
+    expect(console.error).toHaveBeenCalledWith(
+      "[upload] failed to delete archived workbook after archive error:",
+      expect.objectContaining({
+          filingId: FILING_ID,
+          politicianId: POLITICIAN_ID,
+          archivedPath: ARCHIVED_PATH,
+          error: "storage delete failed",
+        }), 
+    );
   });
 
   it("does not archive anything when a schedule insert fails inside the transaction", async () => {
@@ -285,8 +587,10 @@ describe("POST /api/admin/upload/form700", () => {
     const res = await postFile(validBuffer);
 
     expect(res.status).toBe(500);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(archiveWorkbook).not.toHaveBeenCalled();
     expect(prisma.form700Filing.update).not.toHaveBeenCalled();
+    expect(prisma.form700Filing.delete).not.toHaveBeenCalled();
   });
 
   it("returns 400 when neither the cover page nor the form supplies a filer", async () => {

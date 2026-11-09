@@ -57,6 +57,9 @@ describe("GET /api/agenda/:id", () => {
     const res = await request(app).get("/api/agenda/agenda-1");
 
     expect(res.status).toBe(200);
+    expect(prisma.agendaItem.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'agenda-1', isDemo: false },
+    }));
     expect(res.body.data.title).toBe("Development Project");
     expect(res.body.data.itemText).toBe("Full agenda item text");
     expect(res.body.data.meetingDate).toBe(
@@ -68,6 +71,9 @@ describe("GET /api/agenda/:id", () => {
     expect(res.body.data.conflicts[0].politician.id).toBe(
       "politician-1",
     );
+    expect(prisma.agendaItem.findUnique.mock.calls[0][0].select.conflicts.where).toEqual({
+      OR: [{ eligibilityStatus: null }, { eligibilityStatus: "active" }],
+    });
   });
   it("returns 404 when the agenda item does not exist", async () => {
   prisma.agendaItem.findUnique.mockResolvedValue(null);
@@ -77,6 +83,20 @@ describe("GET /api/agenda/:id", () => {
   expect(res.status).toBe(404);
   expect(res.body).toEqual({
     error: "Agenda item not found",
+  });
+});
+
+describe("GET /api/agenda", () => {
+  it("bounds an explicitly limited public list request", async () => {
+    prisma.agendaItem.findMany.mockResolvedValue([]);
+
+    const res = await request(app).get("/api/agenda?limit=25");
+
+    expect(res.status).toBe(200);
+    expect(prisma.agendaItem.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 25 }));
+    expect(prisma.agendaItem.findMany.mock.calls[0][0].select._count.select.conflicts).toEqual({
+      where: { OR: [{ eligibilityStatus: null }, { eligibilityStatus: "active" }] },
+    });
   });
 });
 });

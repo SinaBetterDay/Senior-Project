@@ -1,6 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { pathToFileURL } from "node:url";
 
 const samplePoliticians = [
   {
@@ -47,7 +46,7 @@ const samplePoliticians = [
   },
 ];
 
-async function main() {
+export async function seedDatabase(prisma, log = console.log) {
   const state = await prisma.jurisdiction.upsert({
     where: { legistarClientId: "ca-state" },
     create: {
@@ -75,14 +74,18 @@ async function main() {
     });
   }
 
-  console.log(`Seeded jurisdiction "${state.name}" and ${samplePoliticians.length} politicians.`);
+  log(`Seeded jurisdiction "${state.name}" and ${samplePoliticians.length} politicians.`);
 }
 
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const prisma = new PrismaClient();
+
+  seedDatabase(prisma)
+    .catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}

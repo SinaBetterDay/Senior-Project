@@ -1,14 +1,17 @@
-# React app — routes & UI (`client/app/`)
+# React routes and UI (`client/app/`)
 
-## Role
+Start at `routes.ts`; it is the authoritative route manifest. Public routes cover home, conflicts, politicians, agendas, and about. Admin routes cover login, upload, politicians, sources, and reports.
 
-**React Router** application tree: pages, layouts, and route modules. Public FAIR experience lives here; **admin** routes must verify Supabase session.
+## Placement
 
-## Stack
+- Route/page behavior: `routes/*.tsx`.
+- Reusable visual pieces: `components/`.
+- Reusable state/data logic: `hooks/`.
+- Transport and external-service helpers: `lib/`.
+- Global layout/styles: `root.tsx` and `app.css`.
 
-React 19, React Router 7, Tailwind (see root `client/CONTEXT.md`).
+Use functional TypeScript components and hooks. Keep tests next to the source when practical. Verify keyboard-visible behavior, loading/error states, and public/admin boundaries rather than implementation details.
 
-## Related docs
+`routes/politician.profile.tsx` exists but is not registered in `routes.ts`; do not treat it as a live page without confirming intent.
 
-- `../CONTEXT.md`
-- Repo map: `../../CLAUDE.md`
+Parent guide: `../CONTEXT.md`.

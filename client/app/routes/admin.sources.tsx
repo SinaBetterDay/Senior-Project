@@ -1,9 +1,12 @@
+import RequestError from "../components/RequestError";
+import { safeMessage } from "../lib/request";
 import { useEffect, useState, type FormEvent } from "react";
 import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { AdminGuard, AdminNav } from "../adminComponents";
 import { adminFetch } from "../adminAuth";
 import CityAgendaDiscovery from "../components/CityAgendaDiscovery";
+import SyntheticConflictCheck from "../components/SyntheticConflictCheck";
 
 type Source = {
   id: string;
@@ -11,10 +14,16 @@ type Source = {
   sourceType: "legistar" | "apify" | "pdf" | "Legistar" | "Apify" | "PDF";
   legistarBaseUrl?: string | null;
   apifyActorId?: string | null;
+  startUrl?: string | null;
   lastSyncTime: string | null;
+  documentsFound?: number;
+  pdfsFetched?: number;
+  itemsInserted?: number;
+  itemsSkipped?: number;
   totalAgendaItems: number;
   lastError: string | null;
   status: "ready" | "running" | "success" | "failed" | "disabled";
+  enabled: boolean;
 };
 
 function formatDate(date: string | null) {
@@ -34,6 +43,7 @@ function statusClass(status: Source["status"]) {
 }
 
 export default function AdminSourcesPage() {
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
@@ -42,12 +52,20 @@ export default function AdminSourcesPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingSourceId, setEditingSourceId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [syncAfterSave, setSyncAfterSave] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
   const [cityName, setCityName] = useState("");
   const [sourceType, setSourceType] = useState<"Legistar" | "Apify">("Legistar");
+  const [sourceTab, setSourceTab] = useState<"Legistar" | "Apify">("Legistar");
+  const [historyStart, setHistoryStart] = useState("");
+  const [historyEnd, setHistoryEnd] = useState("");
+  const visibleSources = sources.filter((source) =>
+    (source.sourceType.toLowerCase() === "legistar") === (sourceTab === "Legistar"));
   const [legistarBaseUrl, setLegistarBaseUrl] = useState("");
   const [apifyActorId, setApifyActorId] = useState("");
+  const [startUrl, setStartUrl] = useState("");
 
   async function loadSources() {
     setLoading(true);
@@ -81,11 +99,17 @@ export default function AdminSourcesPage() {
     return () => clearInterval(interval);
   }, []);
 
-  async function handleSync(id: string) {
+  async function handleSync(id: string, type: "Legistar" | "Apify" = sourceTab) {
+    setSyncError(null);
     setSyncingId(id);
     try {
       const res = await adminFetch(`/api/admin/sources/${id}/sync`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(type === "Legistar" ? {
+          ...(historyStart ? { startDate: historyStart } : {}),
+          ...(historyEnd ? { endDate: historyEnd } : {}),
+        } : {}),
       });
 
       if (!res.ok) {
@@ -108,7 +132,7 @@ export default function AdminSourcesPage() {
         setSources((current) => current.map((source) => source.id === id ? { ...source, status: sync.status } : source));
         if (sync.status === "failed") throw new Error(sync.error ?? "The source sync failed.");
         if (sync.status === "success") {
-          toast.success(`Sync complete: ${sync.itemsInserted} new agenda items`);
+          toast.success(`Sync complete: ${sync.documentsFound ?? sync.itemsFound} documents, ${sync.pdfsFetched ?? 0} PDFs, ${sync.documentsSkipped ?? 0} documents skipped, ${sync.itemsInserted} agenda items inserted, ${sync.itemsSkipped} items skipped`);
           await loadSources();
           return;
         }
@@ -117,7 +141,7 @@ export default function AdminSourcesPage() {
       throw new Error("Sync is taking longer than expected. Refresh the source list to check its status.");
     } catch (err) {
       console.error("Sync failed", err);
-      toast.error(err instanceof Error ? err.message : "Sync failed");
+      setSyncError(safeMessage(err, "Sync failed."));
       await loadSources();
     } finally {
       setSyncingId(null);
@@ -130,7 +154,9 @@ export default function AdminSourcesPage() {
     setSourceType("Legistar");
     setLegistarBaseUrl("");
     setApifyActorId("");
+    setStartUrl("");
     setAddError(null);
+    setSyncAfterSave(false);
   }
 
   function startEditingSource(source: Source) {
@@ -139,6 +165,7 @@ export default function AdminSourcesPage() {
     setSourceType(source.sourceType.toLowerCase() === "apify" ? "Apify" : "Legistar");
     setLegistarBaseUrl(source.legistarBaseUrl ?? "");
     setApifyActorId(source.apifyActorId ?? "");
+    setStartUrl(source.startUrl ?? "");
     setAddError(null);
     setShowAddForm(true);
   }
@@ -157,7 +184,7 @@ export default function AdminSourcesPage() {
         body: JSON.stringify({
           cityName,
           sourceType,
-          ...(sourceType === "Legistar" ? { legistarBaseUrl } : { apifyActorId }),
+          ...(sourceType === "Legistar" ? { legistarBaseUrl } : { apifyActorId, startUrl }),
         }),
       });
 
@@ -167,10 +194,14 @@ export default function AdminSourcesPage() {
       }
 
       const wasEditing = editingSourceId !== null;
+      const savedSource = await res.json();
+      const shouldSync = syncAfterSave;
+      setSourceTab(sourceType);
       resetSourceForm();
       setShowAddForm(false);
       toast.success(wasEditing ? "Source updated" : "Source added");
       await loadSources();
+      if (shouldSync) await handleSync(savedSource.id, sourceType);
     } catch (error) {
       setAddError(error instanceof Error ? error.message : "Failed to save source.");
     } finally {
@@ -194,12 +225,34 @@ export default function AdminSourcesPage() {
         throw new Error(body?.error ?? body?.message ?? `Failed to delete source (${res.status})`);
       }
 
-      toast.success("Source deleted; ingested agenda items were kept");
+      const payload = await res.json();
+      toast.success(payload.message ?? "Source deleted; ingested agenda items were kept");
       await loadSources();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to delete source.");
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  async function handleToggleSource(source: Source) {
+    setTogglingId(source.id);
+    try {
+      const res = await adminFetch(`/api/admin/sources/${source.id}/enabled`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !source.enabled }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? `Failed to ${source.enabled ? "disable" : "enable"} source (${res.status})`);
+      }
+      toast.success(source.enabled ? "Source disabled" : "Source enabled");
+      await loadSources();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update source.");
+    } finally {
+      setTogglingId(null);
     }
   }
 
@@ -216,13 +269,32 @@ export default function AdminSourcesPage() {
               Data sources
             </h2>
             <p className="mt-3 text-sm text-slate-600 md:text-base">
-              View ingestion source status and trigger manual syncs.
+              Manage cities and counties, verify stored agenda counts, and run collection jobs.
             </p>
             <p className="mt-2 text-xs text-slate-500">
               Last refreshed: {lastRefreshed.toLocaleTimeString()}
             </p>
           </div>
 
+          <div className="mb-6 flex flex-wrap gap-3" role="tablist" aria-label="Collection method">
+            {(["Legistar", "Apify"] as const).map((type) => (
+              <button key={type} type="button" role="tab" aria-selected={sourceTab === type}
+                className={sourceTab === type ? "button-primary" : "rounded border px-4 py-2"}
+                onClick={() => { setSourceTab(type); resetSourceForm(); setShowAddForm(false); }}>
+                {type === "Legistar" ? "Legistar cities/counties" : "Scraped cities/counties"}
+                {` (${sources.filter((source) => (source.sourceType.toLowerCase() === "legistar") === (type === "Legistar")).length})`}
+              </button>
+            ))}
+          </div>
+          <p className="mb-4 text-sm text-slate-600">
+            Enabled means configured for collection—not proof of a successful import. Stored agenda counts and last successful sync confirm persistence.
+          </p>
+          {sourceTab === "Legistar" && <fieldset className="mb-5 flex flex-wrap gap-4 rounded border p-4">
+            <legend className="px-1 text-sm font-semibold">Optional historical range for Sync now</legend>
+            <label className="text-sm">Start date<input aria-label="Historical start date" type="date" className="field" value={historyStart} onChange={(event) => setHistoryStart(event.target.value)} /></label>
+            <label className="text-sm">End date<input aria-label="Historical end date" type="date" className="field" value={historyEnd} onChange={(event) => setHistoryEnd(event.target.value)} /></label>
+            <p className="text-sm text-slate-500">Leave blank for the default 30-day lookback plus published upcoming meetings.</p>
+          </fieldset>}
           <div className="mb-6 flex justify-end">
             <button
               type="button"
@@ -232,6 +304,7 @@ export default function AdminSourcesPage() {
                   setShowAddForm(false);
                 } else {
                   resetSourceForm();
+                  setSourceType(sourceTab);
                   setShowAddForm(true);
                 }
               }}
@@ -239,7 +312,7 @@ export default function AdminSourcesPage() {
               className="button-primary"
             >
               {showAddForm ? <X size={18} aria-hidden="true" /> : <Plus size={18} aria-hidden="true" />}
-              {showAddForm ? "Close" : "Add source"}
+              {showAddForm ? "Close" : `Add ${sourceTab === "Legistar" ? "Legistar" : "scraped"} city/county`}
             </button>
           </div>
 
@@ -248,7 +321,7 @@ export default function AdminSourcesPage() {
               <h3 className="mb-5 text-lg font-semibold text-gray-900">{editingSourceId ? "Edit ingestion source" : "New ingestion source"}</h3>
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label htmlFor="source-city" className="mb-1 block text-sm font-medium text-gray-800">City name</label>
+                  <label htmlFor="source-city" className="mb-1 block text-sm font-medium text-gray-800">City or county name</label>
                   <input
                     id="source-city"
                     name="cityName"
@@ -287,22 +360,37 @@ export default function AdminSourcesPage() {
                     />
                   </div>
                 ) : (
-                  <div className="md:col-span-2">
-                    <label htmlFor="source-apify-actor" className="mb-1 block text-sm font-medium text-gray-800">Apify actor ID</label>
-                    <input
-                      id="source-apify-actor"
-                      name="apifyActorId"
-                      value={apifyActorId}
-                      onChange={(event) => setApifyActorId(event.target.value)}
-                      placeholder="username/actor-name"
-                      required
-                      className="field"
-                    />
+                  <div className="grid gap-4 md:col-span-2 md:grid-cols-2">
+                    <div>
+                      <label htmlFor="source-apify-actor" className="mb-1 block text-sm font-medium text-gray-800">Apify actor ID</label>
+                      <input
+                        id="source-apify-actor"
+                        name="apifyActorId"
+                        value={apifyActorId}
+                        onChange={(event) => setApifyActorId(event.target.value)}
+                        placeholder="Leave blank for the server default"
+                        className="field"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="source-start-url" className="mb-1 block text-sm font-medium text-gray-800">Agenda archive URL</label>
+                      <input
+                        id="source-start-url"
+                        name="startUrl"
+                        type="url"
+                        value={startUrl}
+                        onChange={(event) => setStartUrl(event.target.value)}
+                        placeholder="https://city.gov/council-agendas"
+                        required
+                        className="field"
+                      />
+                    </div>
                   </div>
                 )}
               </div>
-              {addError && <p role="alert" className="mt-4 text-sm font-medium text-red-700">{addError}</p>}
-              <div className="mt-5 flex justify-end">
+              {addError && <p role="alert" className="mt-4 text-sm font-medium text-red-700">{safeMessage(addError)}</p>}
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={syncAfterSave} onChange={(event) => setSyncAfterSave(event.target.checked)} />Sync immediately after saving</label>
                 <button
                   type="submit"
                   disabled={isSaving}
@@ -315,27 +403,26 @@ export default function AdminSourcesPage() {
           )}
 
           <CityAgendaDiscovery />
+          {syncError && <RequestError message={syncError} onRetry={loadSources} />}
 
           {loadError && (
-            <div className="mb-6 rounded-xl bg-red-100 px-4 py-3 text-sm font-medium text-red-800">
-              {loadError}
-            </div>
+            <RequestError message={loadError} onRetry={loadSources} />
           )}
 
           {loading ? (
             <div className="surface px-6 py-10 text-center text-base text-slate-600">
               Loading sources...
             </div>
-          ) : (
+          ) : !loadError && (
             <div className="surface overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm text-gray-900">
                   <thead className="bg-slate-100 text-slate-700">
                     <tr>
-                      <th className="px-4 py-4 text-left font-semibold">City</th>
+                      <th className="px-4 py-4 text-left font-semibold">City / county</th>
                       <th className="px-4 py-4 text-left font-semibold">Source Type</th>
-                      <th className="px-4 py-4 text-left font-semibold">Last Sync</th>
-                      <th className="px-4 py-4 text-left font-semibold">Agenda Items</th>
+                      <th className="px-4 py-4 text-left font-semibold">Last successful sync</th>
+                      <th className="px-4 py-4 text-left font-semibold">Stored agenda items</th>
                       <th className="px-4 py-4 text-left font-semibold">Status</th>
                       <th className="px-4 py-4 text-left font-semibold">Last Error</th>
                       <th className="px-4 py-4 text-left font-semibold">Action</th>
@@ -343,27 +430,27 @@ export default function AdminSourcesPage() {
                   </thead>
 
                   <tbody className="bg-white">
-                    {sources.length === 0 ? (
+                    {visibleSources.length === 0 ? (
                       <tr>
                         <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                          No data sources found.
+                          No cities/counties configured for this collection method yet.
                         </td>
                       </tr>
                     ) : (
-                      sources.map((source, index) => (
+                      visibleSources.map((source, index) => (
                         <tr key={source.id} className={index !== sources.length - 1 ? "border-b border-gray-200" : ""}>
-                          <td className="px-4 py-4">{source.cityName}</td>
+                          <td className="px-4 py-4">{source.cityName}<p className="mt-1 max-w-xs break-all text-xs text-slate-500">{source.legistarBaseUrl ?? source.startUrl}</p></td>
                           <td className="px-4 py-4 capitalize">{source.sourceType}</td>
                           <td className="px-4 py-4">{formatDate(source.lastSyncTime)}</td>
                           <td className="px-4 py-4">{source.totalAgendaItems}</td>
                           <td className="px-4 py-4">
                             <span className={`inline-flex rounded px-2 py-1 text-xs font-semibold ${statusClass(source.status)}`}>
-                              {statusLabel(source.status)}
+                              {source.enabled ? statusLabel(source.status) : "Disabled"}
                             </span>
                           </td>
                           <td className="px-4 py-4">
                             {source.lastError ? (
-                              <span className="text-red-700">{source.lastError}</span>
+                              <span className="text-red-700">{safeMessage(source.lastError)}</span>
                             ) : (
                               "—"
                             )}
@@ -382,10 +469,19 @@ export default function AdminSourcesPage() {
                               <button
                                 type="button"
                                 onClick={() => handleSync(source.id)}
-                                disabled={syncingId === source.id}
+                                disabled={syncingId === source.id || !source.enabled}
                                 className="button-primary px-3 py-2"
                               >
                                 {syncingId === source.id ? "Syncing..." : "Sync now"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleSource(source)}
+                                disabled={togglingId === source.id}
+                                aria-label={`${source.enabled ? "Disable" : "Enable"} ${source.cityName} source`}
+                                className="rounded-md border border-gray-300 px-3 py-2 text-gray-700 transition hover:bg-gray-100 disabled:opacity-50"
+                              >
+                                {source.enabled ? "Disable" : "Enable"}
                               </button>
                               <button
                                 type="button"
@@ -407,6 +503,7 @@ export default function AdminSourcesPage() {
               </div>
             </div>
           )}
+          <SyntheticConflictCheck />
         </div>
       </main>
       </div>
